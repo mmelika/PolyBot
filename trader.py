@@ -51,6 +51,7 @@ def execute_trade(
     analysis: dict,
     size_usd: float,
     mode: str,
+    research_brief: Optional[str] = None,
 ) -> Optional[int]:
     outcome = analysis["side"]
 
@@ -81,6 +82,7 @@ def execute_trade(
         "gemini_reasoning": analysis["reasoning"],
         "edge": analysis["edge"],
         "closes_at": market.get("end_date_iso", "")[:10],
+        "research_brief": research_brief,
     }
     trade_id = database.insert_trade(db_path, trade)
     log.info("[trader] %s trade: %s | %s @ %.3f | edge=%.1f%% | $%.2f",
@@ -90,6 +92,7 @@ def execute_trade(
 
 
 def scan_and_trade(db_path: str) -> int:
+    import json as _json
     global _status
     _status = "SCANNING"
 
@@ -112,25 +115,57 @@ def scan_and_trade(db_path: str) -> int:
         _status = "RUNNING"
         return 0
 
-    log.info("[trader] Fetched %d markets, mode=%s, deployable=$%.2f", len(markets), mode, max_deployable)
+    log.info("[trader] Fetched %d markets, mode=%s, deployable=$%.2f",
+             len(markets), mode, max_deployable)
 
+    # Phase 1: Screen
+    open_ids = {t["market_id"] for t in database.get_open_trades(db_path)}
+    try:
+        flagged = gemini_agent.screen_markets(markets, open_ids)
+    except Exception as e:
+        log.error("[trader] Screener error: %s", e)
+        _status = "RUNNING"
+        return 0
+
+    flagged = flagged[:config.MAX_FLAGGED_MARKETS]
+    log.info("[trader] Screener flagged %d markets for research", len(flagged))
+
+    market_by_id = {m["market_id"]: m for m in markets}
     trades_placed = 0
-    for market in markets:
-        if is_market_already_open(db_path, market["market_id"]):
+
+    for flag in flagged:
+        market = market_by_id.get(flag["market_id"])
+        if not market:
             continue
+
+        # Phase 2: Research brief
         try:
-            analysis = gemini_agent.analyze_market(market, performance)
+            research = gemini_agent.research_market(market)
         except Exception as e:
-            log.error("[trader] Gemini error: %s", e)
+            log.error("[trader] Research error for %s: %s", market["question"][:40], e)
+            continue
+        if not research:
+            log.info("[trader] No research for: %s", market["question"][:50])
+            continue
+
+        # Phase 3: Probability from research
+        try:
+            analysis = gemini_agent.assign_probability(market, research, performance)
+        except Exception as e:
+            log.error("[trader] Probability error for %s: %s", market["question"][:40], e)
             continue
         if not analysis:
-            log.info("[trader] No analysis for: %s", market['question'][:50])
+            log.info("[trader] No probability for: %s", market["question"][:50])
             continue
-        log.info("[trader] %s | prob=%.2f edge=%.1f%% conf=%s",
-                 market['question'][:40], analysis['probability'],
-                 analysis['edge'] * 100, analysis['confidence'])
+
+        log.info("[trader] %s | prob=%.2f edge=%.1f%% conf=%s contested=%s",
+                 market["question"][:40], analysis["probability"],
+                 analysis["edge"] * 100, analysis["confidence"],
+                 analysis.get("contested", False))
+
         if not should_trade(analysis, market):
             continue
+
         size_usd = gemini_agent.calculate_position_size(
             probability=analysis["probability"],
             entry_price=analysis["entry_price"],
@@ -138,7 +173,9 @@ def scan_and_trade(db_path: str) -> int:
         )
         if size_usd < 1.0:
             continue
-        trade_id = execute_trade(db_path, market, analysis, size_usd, mode)
+
+        research_brief_json = _json.dumps(research)
+        trade_id = execute_trade(db_path, market, analysis, size_usd, mode, research_brief_json)
         if trade_id:
             trades_placed += 1
             new_deployed = database.get_deployed_capital(db_path)

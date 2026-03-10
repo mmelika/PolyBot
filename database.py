@@ -62,14 +62,15 @@ def _row_to_dict(cursor, row) -> dict:
 
 def insert_trade(db_path: str, trade: dict) -> int:
     conn = sqlite3.connect(db_path)
+    row = {"research_brief": None, **trade}
     cursor = conn.execute("""
         INSERT INTO trades (market_id, question, category, outcome, side, size_usd,
             entry_price, current_price, pnl, status, mode, gemini_probability,
-            gemini_reasoning, edge, closes_at)
+            gemini_reasoning, edge, closes_at, research_brief)
         VALUES (:market_id, :question, :category, :outcome, :side, :size_usd,
             :entry_price, :current_price, :pnl, :status, :mode, :gemini_probability,
-            :gemini_reasoning, :edge, :closes_at)
-    """, trade)
+            :gemini_reasoning, :edge, :closes_at, :research_brief)
+    """, row)
     trade_id = cursor.lastrowid
     conn.commit()
     conn.close()

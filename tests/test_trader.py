@@ -127,6 +127,59 @@ def test_should_trade_uncontested_normal_rules_apply():
     assert trader.should_trade(analysis, _market(3)) is True
 
 
+def test_scan_and_trade_three_phase_pipeline(mock_db):
+    """Full pipeline: screener flags 1 market → research → probability → trade placed."""
+    import json
+
+    markets = [{
+        "market_id": "mkt_pipeline",
+        "question": "Will Chelsea win the league?",
+        "category": "sports",
+        "yes_price": 0.30,
+        "no_price": 0.70,
+        "volume": 50000,
+        "end_date_iso": "2026-05-20T00:00:00Z",
+        "yes_token_id": "t_yes",
+        "no_token_id": "t_no",
+    }]
+
+    screen_result = [{"market_id": "mkt_pipeline", "initial_lean": "YES", "reason": "Undervalued"}]
+    research_result = {
+        "key_facts": ["Chelsea top of league"],
+        "base_rate": "Leaders at this stage win ~70%",
+        "recent_developments": "Won last 5",
+        "uncertainty_factors": ["Still 10 games left"],
+    }
+    analysis_result = {
+        "probability": 0.82,
+        "side": "YES",
+        "confidence": "high",
+        "base_rate_estimate": 0.70,
+        "contested": False,
+        "reasoning": "Strong leader, base rate 70%, recent form confirms.",
+        "edge": 0.52,
+        "entry_price": 0.30,
+        "token_id": "t_yes",
+    }
+
+    with patch("trader.polymarket_client.get_active_markets", return_value=markets), \
+         patch("trader.gemini_agent.screen_markets", return_value=screen_result), \
+         patch("trader.gemini_agent.research_market", return_value=research_result), \
+         patch("trader.gemini_agent.assign_probability", return_value=analysis_result), \
+         patch("trader.gemini_agent.calculate_position_size", return_value=15.0):
+        count = trader.scan_and_trade(mock_db)
+
+    assert count == 1
+    import database
+    trades = database.get_open_trades(mock_db)
+    assert len(trades) == 1
+    assert trades[0]["market_id"] == "mkt_pipeline"
+    # research brief stored
+    assert trades[0]["research_brief"] is not None
+    stored = json.loads(trades[0]["research_brief"])
+    assert stored["key_facts"] == ["Chelsea top of league"]
+
+
 def test_skip_already_open_market(mock_db):
     import database
     trade = {
