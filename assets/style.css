@@ -127,6 +127,20 @@ body {
 }
 .btn-real:hover { background: rgba(167,139,250,0.18); }
 
+.btn-reset {
+  background: rgba(239,68,68,0.10);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.25);
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 150ms;
+}
+.btn-reset:hover { background: rgba(239,68,68,0.18); }
+
 /* ── Stat cards ──────────────────────────────────────────────────── */
 .stat-card {
   background: #111114;
@@ -163,7 +177,7 @@ body {
   margin-top: 6px;
 }
 
-.stat-positive { color: #a78bfa; }
+.stat-positive { color: #22c55e; }
 .stat-negative { color: #ef4444; }
 
 /* ── Section cards ───────────────────────────────────────────────── */
@@ -252,9 +266,9 @@ tbody td.cell-primary { color: #ffffff; }
 /* ── Pills ───────────────────────────────────────────────────────── */
 .pill-yes {
   display: inline-block;
-  background: rgba(167,139,250,0.12);
-  color: #a78bfa;
-  border: 1px solid rgba(167,139,250,0.2);
+  background: rgba(34,197,94,0.12);
+  color: #22c55e;
+  border: 1px solid rgba(34,197,94,0.2);
   padding: 2px 9px;
   border-radius: 999px;
   font-size: 10px;
@@ -312,7 +326,6 @@ tbody td.cell-primary { color: #ffffff; }
 
 /* ── Probability text ────────────────────────────────────────────── */
 .prob-value {
-  color: #a78bfa;
   font-family: 'Roboto Mono', monospace;
   font-size: 12px;
   font-weight: 500;
