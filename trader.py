@@ -177,16 +177,31 @@ def scan_and_trade(db_path: str) -> int:
                  analysis["edge"] * 100, analysis["confidence"],
                  analysis.get("contested", False))
 
-        if not should_trade(analysis, market, settings):
-            continue
+        skip_reason = get_skip_reason(analysis, market, settings)
+        if skip_reason is None:
+            size_usd = gemini_agent.calculate_position_size(
+                probability=analysis["probability"],
+                entry_price=analysis["entry_price"],
+                portfolio_value=total_value,
+            )
+            size_usd = min(size_usd, settings["max_position_size"])
+            if size_usd < 1.0:
+                skip_reason = f"position size too small (${size_usd:.2f})"
 
-        size_usd = gemini_agent.calculate_position_size(
-            probability=analysis["probability"],
-            entry_price=analysis["entry_price"],
-            portfolio_value=total_value,
-        )
-        size_usd = min(size_usd, settings["max_position_size"])
-        if size_usd < 1.0:
+        if skip_reason is not None:
+            database.insert_skipped_market(db_path, {
+                "market_id": market["market_id"],
+                "question": market["question"],
+                "category": market.get("category", "other"),
+                "side": analysis["side"],
+                "probability": analysis["probability"],
+                "edge": analysis.get("edge"),
+                "confidence": analysis.get("confidence"),
+                "contested": analysis.get("contested", False),
+                "skip_reason": skip_reason,
+                "reasoning": analysis.get("reasoning", ""),
+                "mode": mode,
+            })
             continue
 
         research_brief_json = _json.dumps(research)

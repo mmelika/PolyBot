@@ -233,6 +233,54 @@ def test_should_trade_delegates_to_get_skip_reason():
         assert trader.should_trade(analysis, market, settings) == expected
 
 
+def test_scan_and_trade_stores_skipped_market(mock_db):
+    """Market that fails should_trade() is stored in skipped_markets."""
+    markets = [{
+        "market_id": "mkt_skip",
+        "question": "Will this be skipped?",
+        "category": "sports",
+        "yes_price": 0.50,
+        "no_price": 0.50,
+        "volume": 10000,
+        "end_date_iso": "2026-05-01T00:00:00Z",
+        "yes_token_id": "t_yes",
+        "no_token_id": "t_no",
+    }]
+    screen_result = [{"market_id": "mkt_skip", "initial_lean": "YES", "reason": "Looks interesting"}]
+    research_result = {
+        "key_facts": ["50/50 market"],
+        "base_rate": "~50%",
+        "recent_developments": "Nothing notable",
+        "uncertainty_factors": ["Coin flip"],
+    }
+    # Analysis with confidence=low → will be skipped
+    analysis_result = {
+        "probability": 0.55,
+        "side": "YES",
+        "confidence": "low",
+        "base_rate_estimate": 0.50,
+        "contested": False,
+        "reasoning": "Too uncertain to call",
+        "edge": 0.05,
+        "entry_price": 0.50,
+        "token_id": "t_yes",
+    }
+
+    with patch("trader.polymarket_client.get_active_markets", return_value=markets), \
+         patch("trader.gemini_agent.screen_markets", return_value=screen_result), \
+         patch("trader.gemini_agent.research_market", return_value=research_result), \
+         patch("trader.gemini_agent.assign_probability", return_value=analysis_result), \
+         patch("trader.gemini_agent.calculate_position_size", return_value=15.0):
+        count = trader.scan_and_trade(mock_db)
+
+    assert count == 0  # no trade placed
+    import database
+    skipped = database.get_skipped_markets(mock_db, limit=10, mode="paper")
+    assert len(skipped) == 1
+    assert skipped[0]["market_id"] == "mkt_skip"
+    assert skipped[0]["skip_reason"] == "confidence: low"
+
+
 def test_skip_already_open_market(mock_db):
     import database
     trade = {
