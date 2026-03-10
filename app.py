@@ -164,69 +164,60 @@ def render_portfolio_chart(snapshots):
     xs = [s["timestamp"] for s in snapshots]
     ys = [s["total_value"] for s in snapshots]
 
-    # Build green (above) and red (below) segments by interpolating crossings
-    green_x, green_y, red_x, red_y = [], [], [], []
+    # Color based on current value vs starting capital
+    last_val = ys[-1] if ys else baseline
+    is_positive = last_val >= baseline
+    line_color = "#22c55e" if is_positive else "#ef4444"
+    fill_color = "rgba(34,197,94,0.15)" if is_positive else "rgba(239,68,68,0.12)"
 
-    for i in range(len(xs)):
-        above = ys[i] >= baseline
-        if i > 0:
-            prev_above = ys[i - 1] >= baseline
-            if above != prev_above:
-                # Approximate crossing at previous timestamp
-                cross_x = xs[i - 1]
-                green_x.append(cross_x)
-                green_y.append(baseline)
-                red_x.append(cross_x)
-                red_y.append(baseline)
-        if above:
-            green_x.append(xs[i])
-            green_y.append(ys[i])
-            red_x.append(xs[i])
-            red_y.append(baseline)
-        else:
-            red_x.append(xs[i])
-            red_y.append(ys[i])
-            green_x.append(xs[i])
-            green_y.append(baseline)
+    # Y-axis range: zoom into ±15% around the baseline so changes are visible
+    spread = max(abs(v - baseline) for v in ys) if len(ys) > 1 else baseline * 0.05
+    spread = max(spread, baseline * 0.02)  # at least 2% spread so chart isn't flat
+    y_min = baseline - spread * 1.4
+    y_max = baseline + spread * 1.4
 
     fig = go.Figure()
 
-    if green_x:
-        fig.add_trace(go.Scatter(
-            x=green_x, y=green_y,
-            mode="lines",
-            line=dict(color="#22c55e", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(34,197,94,0.12)",
-            hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
-            showlegend=False,
-        ))
+    # Invisible baseline trace — the fill on the next trace fills TO this one
+    fig.add_trace(go.Scatter(
+        x=xs,
+        y=[baseline] * len(xs),
+        mode="lines",
+        line=dict(color="rgba(0,0,0,0)", width=0),
+        showlegend=False,
+        hoverinfo="skip",
+    ))
 
-    if red_x:
-        fig.add_trace(go.Scatter(
-            x=red_x, y=red_y,
-            mode="lines",
-            line=dict(color="#ef4444", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(239,68,68,0.10)",
-            hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
-            showlegend=False,
-        ))
+    # Portfolio value trace, fills to the baseline trace above
+    fig.add_trace(go.Scatter(
+        x=xs,
+        y=ys,
+        mode="lines",
+        line=dict(color=line_color, width=2),
+        fill="tonexty",
+        fillcolor=fill_color,
+        hovertemplate="$%{y:,.2f}<extra></extra>",
+        showlegend=False,
+    ))
 
-    # Baseline reference line
+    # Dotted baseline reference line
     fig.add_hline(
         y=baseline,
-        line=dict(color="rgba(255,255,255,0.10)", width=1, dash="dot"),
+        line=dict(color="rgba(255,255,255,0.12)", width=1, dash="dot"),
     )
 
     fig.update_layout(
         paper_bgcolor="#111114",
         plot_bgcolor="#111114",
         font=dict(color="#52525b", size=10, family="Inter, sans-serif"),
-        margin=dict(l=48, r=12, t=8, b=32),
+        margin=dict(l=52, r=12, t=8, b=32),
         height=220,
         hovermode="x unified",
-        hoverlabel=dict(bgcolor="#18181b", bordercolor="#27272a", font=dict(color="#fff", size=11)),
+        hoverlabel=dict(
+            bgcolor="#18181b",
+            bordercolor="#27272a",
+            font=dict(color="#fff", size=11),
+        ),
         xaxis=dict(
             showgrid=False,
             zeroline=False,
@@ -242,6 +233,7 @@ def render_portfolio_chart(snapshots):
             tickfont=dict(size=10),
             tickprefix="$",
             showline=False,
+            range=[y_min, y_max],
         ),
     )
     return fig
