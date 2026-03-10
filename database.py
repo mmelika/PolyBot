@@ -99,22 +99,23 @@ def close_trade(db_path: str, trade_id: int, resolution: str, resolved_price: fl
     conn.close()
 
 
-def get_open_trades(db_path: str) -> list:
+def get_open_trades(db_path: str, mode: str = "paper") -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute(
-        "SELECT * FROM trades WHERE status IN ('FILLED', 'PENDING') ORDER BY created_at DESC"
+        "SELECT * FROM trades WHERE status IN ('FILLED', 'PENDING') AND mode = ? ORDER BY created_at DESC",
+        (mode,)
     )
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return rows
 
 
-def get_recent_trades(db_path: str, limit: int = 20) -> list:
+def get_recent_trades(db_path: str, limit: int = 20, mode: str = "paper") -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute(
-        "SELECT * FROM trades ORDER BY created_at DESC LIMIT ?", (limit,)
+        "SELECT * FROM trades WHERE mode = ? ORDER BY created_at DESC LIMIT ?", (mode, limit)
     )
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
@@ -131,18 +132,19 @@ def snapshot_portfolio(db_path: str, total_value: float, cash_balance: float, mo
     conn.close()
 
 
-def get_portfolio_snapshots(db_path: str, limit: int = 200) -> list:
+def get_portfolio_snapshots(db_path: str, limit: int = 200, mode: str = "paper") -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute(
-        "SELECT * FROM portfolio_snapshots ORDER BY timestamp DESC LIMIT ?", (limit,)
+        "SELECT * FROM portfolio_snapshots WHERE mode = ? ORDER BY timestamp DESC LIMIT ?",
+        (mode, limit)
     )
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return list(reversed(rows))
 
 
-def get_performance_by_category(db_path: str) -> dict:
+def get_performance_by_category(db_path: str, mode: str = "paper") -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute("""
@@ -152,9 +154,9 @@ def get_performance_by_category(db_path: str) -> dict:
                SUM(pnl) as total_pnl,
                AVG(edge) as avg_edge
         FROM trades
-        WHERE status = 'CLOSED' AND resolution IS NOT NULL
+        WHERE status = 'CLOSED' AND resolution IS NOT NULL AND mode = ?
         GROUP BY category
-    """)
+    """, (mode,))
     result = {}
     for row in cursor.fetchall():
         d = dict(row)
@@ -169,7 +171,7 @@ def get_performance_by_category(db_path: str) -> dict:
     return result
 
 
-def get_daily_stats(db_path: str) -> dict:
+def get_daily_stats(db_path: str, mode: str = "paper") -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute("""
@@ -177,25 +179,26 @@ def get_daily_stats(db_path: str) -> dict:
             COUNT(*) as daily_trades,
             SUM(pnl) as daily_pnl
         FROM trades
-        WHERE date(created_at) = date('now')
-    """)
+        WHERE date(created_at) = date('now') AND mode = ?
+    """, (mode,))
     row = dict(cursor.fetchone())
     conn.close()
     return row
 
 
-def get_total_pnl(db_path: str) -> float:
+def get_total_pnl(db_path: str, mode: str = "paper") -> float:
     conn = sqlite3.connect(db_path)
-    cursor = conn.execute("SELECT SUM(pnl) FROM trades")
+    cursor = conn.execute("SELECT SUM(pnl) FROM trades WHERE mode = ?", (mode,))
     result = cursor.fetchone()[0]
     conn.close()
     return result or 0.0
 
 
-def get_deployed_capital(db_path: str) -> float:
+def get_deployed_capital(db_path: str, mode: str = "paper") -> float:
     conn = sqlite3.connect(db_path)
     cursor = conn.execute(
-        "SELECT SUM(size_usd) FROM trades WHERE status IN ('FILLED', 'PENDING')"
+        "SELECT SUM(size_usd) FROM trades WHERE status IN ('FILLED', 'PENDING') AND mode = ?",
+        (mode,)
     )
     result = cursor.fetchone()[0]
     conn.close()

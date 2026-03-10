@@ -42,7 +42,7 @@ def test_insert_and_get_trade(db):
     }
     trade_id = database.insert_trade(db, trade)
     assert trade_id is not None
-    trades = database.get_open_trades(db)
+    trades = database.get_open_trades(db, "paper")
     assert len(trades) == 1
     assert trades[0]["question"] == "Will Bitcoin hit $100k?"
 
@@ -67,14 +67,14 @@ def test_update_trade_price(db):
     }
     trade_id = database.insert_trade(db, trade)
     database.update_trade_price(db, trade_id, 0.25, pnl=2.0)
-    trades = database.get_open_trades(db)
+    trades = database.get_open_trades(db, "paper")
     assert trades[0]["current_price"] == 0.25
     assert trades[0]["pnl"] == 2.0
 
 
 def test_snapshot_portfolio(db):
     database.snapshot_portfolio(db, total_value=510.0, cash_balance=100.0, mode="paper")
-    snapshots = database.get_portfolio_snapshots(db, limit=10)
+    snapshots = database.get_portfolio_snapshots(db, limit=10, mode="paper")
     assert len(snapshots) == 1
     assert snapshots[0]["total_value"] == 510.0
 
@@ -101,7 +101,7 @@ def test_get_performance_by_category(db):
         trade_id = database.insert_trade(db, trade)
         database.close_trade(db, trade_id, resolution=resolution, resolved_price=0.9 if resolution == "WIN" else 0.1)
 
-    perf = database.get_performance_by_category(db)
+    perf = database.get_performance_by_category(db, "paper")
     assert perf["crypto"]["win_rate"] == 1.0
     assert perf["sports"]["win_rate"] == 0.0
 
@@ -132,7 +132,7 @@ def test_get_recent_trades(db):
             "closes_at": "2026-04-01",
         }
         database.insert_trade(db, trade)
-    recent = database.get_recent_trades(db, limit=3)
+    recent = database.get_recent_trades(db, limit=3, mode="paper")
     assert len(recent) == 3
 
 
@@ -161,8 +161,8 @@ def test_reset_paper_trading_wipes_paper_data(tmp_path):
     })
     database.snapshot_portfolio(db, 4800.0, 4750.0, "paper")
     database.reset_paper_trading(db, starting_capital=5000.0)
-    assert database.get_open_trades(db) == []
-    snaps = database.get_portfolio_snapshots(db)
+    assert database.get_open_trades(db, "paper") == []
+    snaps = database.get_portfolio_snapshots(db, mode="paper")
     assert len(snaps) == 1
     assert snaps[0]["total_value"] == 5000.0
     assert snaps[0]["cash_balance"] == 5000.0
@@ -181,7 +181,7 @@ def test_reset_paper_trading_preserves_real_data(tmp_path):
     })
     database.snapshot_portfolio(db, 10000.0, 9900.0, "real")
     database.reset_paper_trading(db, starting_capital=5000.0)
-    real_trades = database.get_open_trades(db)
+    real_trades = database.get_open_trades(db, "real")
     assert len(real_trades) == 1
     assert real_trades[0]["mode"] == "real"
 
@@ -220,3 +220,81 @@ def test_save_settings_overwrite(db):
     database.save_settings(db, {"paper_starting_capital": 2500.0})
     settings = database.get_settings(db)
     assert settings["paper_starting_capital"] == 2500.0
+
+
+def _make_trade(market_id, mode):
+    return {
+        "market_id": market_id,
+        "question": f"Q {market_id}",
+        "category": "crypto",
+        "outcome": "YES",
+        "side": "BUY",
+        "size_usd": 10.0,
+        "entry_price": 0.5,
+        "current_price": 0.5,
+        "pnl": 2.0,
+        "status": "FILLED",
+        "mode": mode,
+        "gemini_probability": 0.6,
+        "gemini_reasoning": "test",
+        "edge": 0.1,
+        "closes_at": "2026-06-01",
+    }
+
+
+def test_get_open_trades_filters_by_mode(db):
+    database.insert_trade(db, _make_trade("m1", "paper"))
+    database.insert_trade(db, _make_trade("m2", "real"))
+    paper = database.get_open_trades(db, "paper")
+    real = database.get_open_trades(db, "real")
+    assert len(paper) == 1 and paper[0]["market_id"] == "m1"
+    assert len(real) == 1 and real[0]["market_id"] == "m2"
+
+
+def test_get_recent_trades_filters_by_mode(db):
+    database.insert_trade(db, _make_trade("m1", "paper"))
+    database.insert_trade(db, _make_trade("m2", "real"))
+    paper = database.get_recent_trades(db, limit=10, mode="paper")
+    assert all(t["mode"] == "paper" for t in paper)
+    assert len(paper) == 1
+
+
+def test_get_total_pnl_filters_by_mode(db):
+    database.insert_trade(db, _make_trade("m1", "paper"))
+    database.insert_trade(db, _make_trade("m2", "real"))
+    assert database.get_total_pnl(db, "paper") == 2.0
+    assert database.get_total_pnl(db, "real") == 2.0
+
+
+def test_get_deployed_capital_filters_by_mode(db):
+    database.insert_trade(db, _make_trade("m1", "paper"))
+    database.insert_trade(db, _make_trade("m2", "real"))
+    assert database.get_deployed_capital(db, "paper") == 10.0
+    assert database.get_deployed_capital(db, "real") == 10.0
+
+
+def test_get_portfolio_snapshots_filters_by_mode(db):
+    database.snapshot_portfolio(db, 5000, 5000, "paper")
+    database.snapshot_portfolio(db, 9000, 9000, "real")
+    paper_snaps = database.get_portfolio_snapshots(db, limit=10, mode="paper")
+    real_snaps = database.get_portfolio_snapshots(db, limit=10, mode="real")
+    assert len(paper_snaps) == 1 and paper_snaps[0]["total_value"] == 5000
+    assert len(real_snaps) == 1 and real_snaps[0]["total_value"] == 9000
+
+
+def test_get_performance_by_category_filters_by_mode(db):
+    """Paper WIN trade should not show in real mode performance."""
+    t = {**_make_trade("m1", "paper"), "status": "CLOSED", "pnl": 5.0}
+    trade_id = database.insert_trade(db, t)
+    database.close_trade(db, trade_id, "WIN", 0.9)
+    assert "crypto" in database.get_performance_by_category(db, "paper")
+    assert database.get_performance_by_category(db, "real") == {}
+
+
+def test_get_daily_stats_filters_by_mode(db):
+    database.insert_trade(db, _make_trade("m1", "paper"))
+    database.insert_trade(db, _make_trade("m2", "real"))
+    paper_stats = database.get_daily_stats(db, "paper")
+    real_stats = database.get_daily_stats(db, "real")
+    assert paper_stats["daily_trades"] == 1
+    assert real_stats["daily_trades"] == 1
