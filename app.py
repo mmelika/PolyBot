@@ -156,22 +156,90 @@ def render_recent_trades(trades):
 def render_portfolio_chart(snapshots):
     if not snapshots:
         snapshots = [{"timestamp": datetime.now().isoformat(), "total_value": config.STARTING_CAPITAL}]
+
+    baseline = config.STARTING_CAPITAL
+    xs = [s["timestamp"] for s in snapshots]
+    ys = [s["total_value"] for s in snapshots]
+
+    # Build green (above) and red (below) segments by interpolating crossings
+    green_x, green_y, red_x, red_y = [], [], [], []
+
+    for i in range(len(xs)):
+        above = ys[i] >= baseline
+        if i > 0:
+            prev_above = ys[i - 1] >= baseline
+            if above != prev_above:
+                # Approximate crossing at previous timestamp
+                cross_x = xs[i - 1]
+                green_x.append(cross_x)
+                green_y.append(baseline)
+                red_x.append(cross_x)
+                red_y.append(baseline)
+        if above:
+            green_x.append(xs[i])
+            green_y.append(ys[i])
+            red_x.append(xs[i])
+            red_y.append(baseline)
+        else:
+            red_x.append(xs[i])
+            red_y.append(ys[i])
+            green_x.append(xs[i])
+            green_y.append(baseline)
+
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=[s["timestamp"] for s in snapshots],
-        y=[s["total_value"] for s in snapshots],
-        mode="lines",
-        line=dict(color="#f43f5e", width=2),
-        fill="tozeroy",
-        fillcolor="rgba(244,63,94,0.08)",
-        hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
-    ))
+
+    if green_x:
+        fig.add_trace(go.Scatter(
+            x=green_x, y=green_y,
+            mode="lines",
+            line=dict(color="#22c55e", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(34,197,94,0.12)",
+            hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
+            showlegend=False,
+        ))
+
+    if red_x:
+        fig.add_trace(go.Scatter(
+            x=red_x, y=red_y,
+            mode="lines",
+            line=dict(color="#ef4444", width=2),
+            fill="tozeroy",
+            fillcolor="rgba(239,68,68,0.10)",
+            hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
+            showlegend=False,
+        ))
+
+    # Baseline reference line
+    fig.add_hline(
+        y=baseline,
+        line=dict(color="rgba(255,255,255,0.10)", width=1, dash="dot"),
+    )
+
     fig.update_layout(
-        paper_bgcolor="#111827", plot_bgcolor="#111827",
-        font=dict(color="#9ca3af", size=11),
-        margin=dict(l=40, r=10, t=10, b=30), height=200,
-        xaxis=dict(showgrid=False, color="#374151"),
-        yaxis=dict(showgrid=True, gridcolor="#1f2937", color="#374151"),
+        paper_bgcolor="#111114",
+        plot_bgcolor="#111114",
+        font=dict(color="#52525b", size=10, family="Inter, sans-serif"),
+        margin=dict(l=48, r=12, t=8, b=32),
+        height=220,
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#18181b", bordercolor="#27272a", font=dict(color="#fff", size=11)),
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            color="#3f3f46",
+            tickfont=dict(size=10),
+            showline=False,
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.04)",
+            zeroline=False,
+            color="#3f3f46",
+            tickfont=dict(size=10),
+            tickprefix="$",
+            showline=False,
+        ),
     )
     return fig
 
