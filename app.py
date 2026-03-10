@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output, State, ctx
+from dash import dcc, html, Input, Output, State, ctx, ALL
 import plotly.graph_objs as go
 from datetime import datetime
 import os
@@ -620,6 +620,32 @@ def refresh(_n):
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "● Next refresh in 5s",
     )
+
+
+@app.callback(
+    Output("buy-more-store", "data"),
+    Input({"type": "buy-more-btn", "index": ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def open_buy_more(n_clicks_list):
+    if not any(n for n in (n_clicks_list or []) if n):
+        raise dash.exceptions.PreventUpdate
+    trade_id = ctx.triggered_id["index"]
+    trade = database.get_trade_by_id(config.DB_PATH, trade_id)
+    if not trade:
+        raise dash.exceptions.PreventUpdate
+    return {
+        "trade_id": trade_id,
+        "market_id": trade["market_id"],
+        "question": trade["question"],
+        "outcome": trade["outcome"],
+        "entry_price": trade["entry_price"],
+        "mode": trade["mode"],
+        "gemini_probability": trade.get("gemini_probability"),
+        "edge": trade.get("edge"),
+        "closes_at": trade.get("closes_at"),
+        "category": trade.get("category", "other"),
+    }
 
 
 if __name__ == "__main__":

@@ -338,6 +338,15 @@ def get_trade_by_market_id(db_path: str, market_id: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def get_trade_by_id(db_path: str, trade_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def reset_paper_trading(db_path: str, starting_capital: float) -> None:
     """Delete all paper-mode trades and snapshots, then seed one snapshot at starting_capital."""
     conn = sqlite3.connect(db_path)

@@ -368,3 +368,28 @@ def test_get_skipped_markets_filters_by_mode(db):
     paper_rows = database.get_skipped_markets(db, limit=10, mode="paper")
     assert all(r["mode"] == "paper" for r in paper_rows)
     assert len(paper_rows) == 1
+
+
+def test_get_trade_by_id(tmp_path):
+    import database
+    db_path = str(tmp_path / "test.db")
+    database.init_db(db_path)
+    trade = {
+        "market_id": "mkt_1", "question": "Test?", "category": "other",
+        "outcome": "YES", "side": "BUY", "size_usd": 10.0,
+        "entry_price": 0.4, "current_price": 0.4, "pnl": 0.0,
+        "status": "FILLED", "mode": "paper", "gemini_probability": 0.6,
+        "gemini_reasoning": "test", "edge": 0.1, "closes_at": "2026-06-01",
+    }
+    trade_id = database.insert_trade(db_path, trade)
+    result = database.get_trade_by_id(db_path, trade_id)
+    assert result is not None
+    assert result["market_id"] == "mkt_1"
+    assert result["id"] == trade_id
+
+
+def test_get_trade_by_id_missing(tmp_path):
+    import database
+    db_path = str(tmp_path / "test.db")
+    database.init_db(db_path)
+    assert database.get_trade_by_id(db_path, 9999) is None
