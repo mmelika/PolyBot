@@ -184,3 +184,39 @@ def test_reset_paper_trading_preserves_real_data(tmp_path):
     real_trades = database.get_open_trades(db)
     assert len(real_trades) == 1
     assert real_trades[0]["mode"] == "real"
+
+
+def test_get_settings_returns_defaults(db):
+    """With nothing saved, get_settings returns config defaults."""
+    import config
+    settings = database.get_settings(db)
+    assert settings["paper_starting_capital"] == config.STARTING_CAPITAL
+    assert settings["real_starting_capital"] == config.STARTING_CAPITAL
+    assert settings["min_advantage"] == config.MIN_EDGE
+    assert settings["max_position_size"] == config.MAX_POSITION_SIZE
+    assert settings["max_deployed_pct"] == config.MAX_DEPLOYED_PCT
+    assert settings["scan_interval_minutes"] == config.SCAN_INTERVAL_MINUTES
+    assert settings["min_market_volume"] == config.MIN_MARKET_VOLUME
+    assert settings["long_term_days"] == config.LONG_TERM_DAYS
+    assert settings["long_term_min_prob"] == config.LONG_TERM_MIN_PROB
+
+
+def test_save_and_get_settings(db):
+    """save_settings persists values, get_settings reads them back."""
+    database.save_settings(db, {
+        "paper_starting_capital": 10000.0,
+        "min_advantage": 0.12,
+        "scan_interval_minutes": 5,
+    })
+    settings = database.get_settings(db)
+    assert settings["paper_starting_capital"] == 10000.0
+    assert settings["min_advantage"] == 0.12
+    assert settings["scan_interval_minutes"] == 5
+
+
+def test_save_settings_overwrite(db):
+    """Saving the same key twice updates it."""
+    database.save_settings(db, {"paper_starting_capital": 1000.0})
+    database.save_settings(db, {"paper_starting_capital": 2500.0})
+    settings = database.get_settings(db)
+    assert settings["paper_starting_capital"] == 2500.0
