@@ -1,5 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+import requests
 import config
 
 try:
@@ -8,13 +9,14 @@ try:
     from py_clob_client.constants import POLYGON
     CLOB_AVAILABLE = True
 except ImportError:
-    # Define placeholder class so patch("polymarket_client.ClobClient") works
     class ClobClient:
         pass
     OrderArgs = None
     OrderType = None
     POLYGON = None
     CLOB_AVAILABLE = False
+
+GAMMA_API = "https://gamma-api.polymarket.com"
 
 
 def _get_client():
@@ -55,7 +57,7 @@ def get_active_markets(
     min_hours_to_close: int = None,
     max_markets: int = None,
 ) -> list:
-    """Fetch and filter active markets from Polymarket."""
+    """Fetch and filter active markets from Polymarket's public API."""
     if min_volume is None:
         min_volume = config.MIN_MARKET_VOLUME
     if min_hours_to_close is None:
@@ -63,9 +65,16 @@ def get_active_markets(
     if max_markets is None:
         max_markets = config.MAX_MARKETS_TO_SCAN
 
-    client = _get_client()
-    response = client.get_markets()
-    raw_markets = response.data if hasattr(response, "data") else response
+    # Use the free public Gamma API — no auth needed
+    resp = requests.get(f"{GAMMA_API}/markets", params={
+        "closed": "false",
+        "active": "true",
+        "limit": 100,
+        "order": "volume",
+        "ascending": "false",
+    }, timeout=15)
+    resp.raise_for_status()
+    raw_markets = resp.json()
 
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(hours=min_hours_to_close)

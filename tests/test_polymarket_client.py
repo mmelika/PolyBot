@@ -12,8 +12,10 @@ def test_get_active_markets_filters_low_volume():
          "tokens": [{"token_id": "t3", "outcome": "Yes", "price": 0.5}, {"token_id": "t4", "outcome": "No", "price": 0.5}],
          "category": "crypto", "active": True, "closed": False},
     ]
-    with patch("polymarket_client.ClobClient") as mock_clob:
-        mock_clob.return_value.get_markets.return_value.data = raw_markets
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = raw_markets
+    mock_resp.raise_for_status = MagicMock()
+    with patch("polymarket_client.requests.get", return_value=mock_resp):
         markets = pc.get_active_markets(min_volume=1000)
     assert len(markets) == 1
     assert markets[0]["condition_id"] == "1"
@@ -25,8 +27,10 @@ def test_get_active_markets_filters_expired():
          "tokens": [{"token_id": "t1", "outcome": "Yes", "price": 0.6}, {"token_id": "t2", "outcome": "No", "price": 0.4}],
          "category": "sports", "active": True, "closed": False},
     ]
-    with patch("polymarket_client.ClobClient") as mock_clob:
-        mock_clob.return_value.get_markets.return_value.data = raw_markets
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = raw_markets
+    mock_resp.raise_for_status = MagicMock()
+    with patch("polymarket_client.requests.get", return_value=mock_resp):
         markets = pc.get_active_markets(min_volume=1000, min_hours_to_close=24)
     assert len(markets) == 0
 
