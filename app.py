@@ -35,6 +35,8 @@ app.layout = html.Div([
         html.Div([
             html.Span(id="mode-btn", n_clicks=0, className="btn-paper",
                       children="PAPER MODE", style={"cursor": "pointer", "marginRight": "16px"}),
+            html.Span(id="reset-btn", n_clicks=0, className="btn-reset",
+                      children="RESET", style={"cursor": "pointer", "marginRight": "16px"}),
             html.Span(id="refresh-text", style={"fontSize": "12px", "color": "#6b7280", "marginRight": "16px"}),
             html.Span(id="clock", style={"fontSize": "12px", "color": "#6b7280"}),
         ], style={"display": "flex", "alignItems": "center"}),
@@ -80,6 +82,7 @@ app.layout = html.Div([
             ], style={"flex": "1"}),
         ], style={"display": "flex", "gap": "16px"}),
     ], style={"padding": "16px"}),
+    html.Div(id="reset-dummy", style={"display": "none"}),
 ])
 
 
@@ -275,6 +278,16 @@ def toggle_mode(n_clicks):
     new_mode = "real" if current == "paper" else "paper"
     database.set_app_state(config.DB_PATH, "trading_mode", new_mode)
     return ("REAL MODE", "btn-real") if new_mode == "real" else ("PAPER MODE", "btn-paper")
+
+
+@app.callback(
+    Output("reset-dummy", "children"),
+    Input("reset-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def reset_paper(_n_clicks):
+    database.reset_paper_trading(config.DB_PATH, config.STARTING_CAPITAL)
+    return ""
 
 
 @app.callback(
