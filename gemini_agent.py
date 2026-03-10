@@ -105,7 +105,7 @@ Estimate the true probability this resolves YES."""
     try:
         client = genai.Client(api_key=config.GEMINI_API_KEY)
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-pro",
             contents=prompt,
             config=genai_types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
