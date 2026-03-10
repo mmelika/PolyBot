@@ -24,6 +24,24 @@ ALWAYS respond with valid JSON in this exact format:
 
 Do not include any text outside the JSON."""
 
+SYSTEM_PROMPT_PROBABILITY = """You are making a final probability judgment for a prediction market. You have $1,000 of irreplaceable money on the line. Be rigorous, honest, and conservative.
+
+You will be given a research brief. Your job:
+1. Start from the base rate stated in the research
+2. Only move away from the base rate if you can cite SPECIFIC evidence from the research
+3. If multiple outcomes are near-equally likely (tight races, coin flips, 3-way battles), set contested=true
+4. Be honest about uncertainty — set confidence "low" if you cannot clearly distinguish the outcome
+
+ALWAYS respond with valid JSON only, no other text:
+{
+  "probability": <float 0-1>,
+  "side": "YES or NO",
+  "confidence": "low, medium, or high",
+  "base_rate_estimate": <float 0-1, what naive base rate alone would suggest>,
+  "contested": <true if multiple outcomes are near-equally plausible, else false>,
+  "reasoning": "<2-3 sentences: state base rate, state what moves you from it, state final judgment>"
+}"""
+
 SYSTEM_PROMPT_RESEARCH = """You are a rigorous fact-gatherer for prediction market research. Your ONLY job is to find and report current, factual information. Do NOT assign any probability or make a recommendation.
 
 You are researching with $1,000 of irreplaceable money at stake. Be thorough and honest. Actively look for information that CONTRADICTS the initial lean — find the strongest counterargument.
@@ -136,6 +154,35 @@ def parse_research_response(raw: str) -> Optional[dict]:
         return None
 
 
+def parse_probability_response(raw: str) -> Optional[dict]:
+    raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
+    raw = re.sub(r"```\s*$", "", raw).strip()
+    try:
+        data = json.loads(raw)
+        required = ("probability", "side", "confidence", "reasoning",
+                     "base_rate_estimate", "contested")
+        if not all(k in data for k in required):
+            return None
+        prob = float(data["probability"])
+        base_rate = float(data["base_rate_estimate"])
+        if not (0 <= prob <= 1) or not (0 <= base_rate <= 1):
+            return None
+        if data["side"] not in ("YES", "NO"):
+            return None
+        if data["confidence"] not in ("low", "medium", "high"):
+            return None
+        return {
+            "probability": prob,
+            "side": data["side"],
+            "confidence": data["confidence"],
+            "base_rate_estimate": base_rate,
+            "contested": bool(data["contested"]),
+            "reasoning": str(data["reasoning"]),
+        }
+    except (json.JSONDecodeError, ValueError, KeyError):
+        return None
+
+
 def calculate_position_size(
     probability: float,
     entry_price: float,
@@ -224,6 +271,68 @@ def research_market(market: dict) -> Optional[dict]:
         return None
 
     return parse_research_response(raw_text)
+
+
+def assign_probability(market: dict, research: dict, performance: dict) -> Optional[dict]:
+    if not GENAI_AVAILABLE:
+        raise RuntimeError("google-generativeai not installed")
+
+    perf_context = build_performance_context(performance)
+    research_text = (
+        f"Key facts: {'; '.join(research.get('key_facts', []))}\n"
+        f"Base rate: {research.get('base_rate', 'unknown')}\n"
+        f"Recent developments: {research.get('recent_developments', 'none')}\n"
+        f"Uncertainty factors: {'; '.join(research.get('uncertainty_factors', []))}"
+    )
+
+    prompt = (
+        f"{perf_context}\n\n"
+        f"Market: {market['question']}\n"
+        f"Current YES price: {market['yes_price']:.4f} (implied: {market['yes_price']:.1%})\n\n"
+        f"Research findings:\n{research_text}\n\n"
+        f"Now assign the final probability. Start from the base rate. "
+        f"Only deviate if the research gives you specific, concrete evidence to do so."
+    )
+
+    try:
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT_PROBABILITY,
+                temperature=0.2,
+            ),
+        )
+        raw_text = response.text
+    except Exception as e:
+        print(f"[gemini_agent] Probability API error: {e}")
+        return None
+
+    parsed = parse_probability_response(raw_text)
+    if not parsed:
+        return None
+
+    if parsed["side"] == "YES":
+        entry_price = market["yes_price"]
+        token_id = market.get("yes_token_id", "")
+        edge = parsed["probability"] - market["yes_price"]
+    else:
+        entry_price = market["no_price"]
+        token_id = market.get("no_token_id", "")
+        edge = (1 - parsed["probability"]) - market["no_price"]
+
+    return {
+        "probability": parsed["probability"],
+        "side": parsed["side"],
+        "confidence": parsed["confidence"],
+        "base_rate_estimate": parsed["base_rate_estimate"],
+        "contested": parsed["contested"],
+        "reasoning": parsed["reasoning"],
+        "edge": edge,
+        "entry_price": entry_price,
+        "token_id": token_id,
+    }
 
 
 def analyze_market(market: dict, performance: dict, use_web_search: bool = True) -> Optional[dict]:
