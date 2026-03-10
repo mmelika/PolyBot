@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, Input, Output
+from dash import dcc, html, Input, Output, State, ctx
 import plotly.graph_objs as go
 from datetime import datetime
 import os
@@ -11,8 +11,11 @@ import trader
 os.makedirs("data", exist_ok=True)
 database.init_db(config.DB_PATH)
 
-if not database.get_portfolio_snapshots(config.DB_PATH, limit=1):
-    database.snapshot_portfolio(config.DB_PATH, config.STARTING_CAPITAL, config.STARTING_CAPITAL, "paper")
+_startup_settings = database.get_settings(config.DB_PATH)
+for _mode in ("paper", "real"):
+    _cap = _startup_settings["paper_starting_capital"] if _mode == "paper" else _startup_settings["real_starting_capital"]
+    if not database.get_portfolio_snapshots(config.DB_PATH, limit=1, mode=_mode):
+        database.snapshot_portfolio(config.DB_PATH, _cap, _cap, _mode)
 
 if not database.get_app_state(config.DB_PATH, "trading_mode"):
     database.set_app_state(config.DB_PATH, "trading_mode", config.TRADING_MODE)
@@ -21,6 +24,29 @@ trader.start(config.DB_PATH)
 
 app = dash.Dash(__name__, suppress_callback_exceptions=True)
 app.title = "Polymarket AI Agent"
+
+
+def fmt_currency(v): return f"${v:,.2f}"
+def fmt_pct(v): return f"{v:+.2f}%"
+def fmt_price(v): return f"{v:.4f}"
+def pnl_class(v): return "pnl-positive" if v >= 0 else "pnl-negative"
+def pnl_sign(v): return f"+${v:.2f}" if v >= 0 else f"-${abs(v):.2f}"
+
+
+def _settings_field(input_id, label, description, placeholder):
+    return html.Div(className="settings-field", children=[
+        html.Div(label, className="settings-label"),
+        html.Div(description, className="settings-desc"),
+        dcc.Input(
+            id=input_id,
+            type="number",
+            placeholder=str(placeholder),
+            className="settings-input",
+            debounce=False,
+            min=0,
+        ),
+    ])
+
 
 app.layout = html.Div([
     dcc.Interval(id="interval", interval=5000, n_intervals=0),
@@ -33,6 +59,7 @@ app.layout = html.Div([
             html.Span(id="status-pill", children="● RUNNING", className="status-running"),
         ], style={"display": "flex", "alignItems": "center"}),
         html.Div([
+            html.Span("⚙", id="settings-gear-btn", n_clicks=0, className="btn-gear", title="Settings"),
             html.Span(id="mode-btn", n_clicks=0, className="btn-paper",
                       children="PAPER MODE", style={"cursor": "pointer", "marginRight": "16px"}),
             html.Span(id="reset-btn", n_clicks=0, className="btn-reset",
@@ -83,14 +110,59 @@ app.layout = html.Div([
         ], style={"display": "flex", "gap": "16px"}),
     ], style={"padding": "16px"}),
     html.Div(id="reset-dummy", style={"display": "none"}),
+    # Settings modal (hidden by default)
+    html.Div(
+        id="settings-modal",
+        className="modal-overlay",
+        style={"display": "none"},
+        children=[
+            html.Div(className="modal-box", children=[
+                html.Div(className="modal-header", children=[
+                    html.Div("⚙  Settings", className="modal-title"),
+                    html.Span("✕", id="modal-close-btn", n_clicks=0, className="modal-close-btn"),
+                ]),
+                html.Div(className="modal-body", children=[
+                    html.Div("CAPITAL", className="modal-section-label"),
+                    html.Div(className="modal-row", children=[
+                        _settings_field("input-paper-capital", "Paper Balance ($)",
+                            "Virtual money for practice trading. Changes take effect on the next trade.", 5000),
+                        _settings_field("input-real-capital", "Real Balance ($)",
+                            "Your actual Polymarket wallet balance. Used to size real trades.", 5000),
+                    ]),
+                    html.Div("RISK MANAGEMENT", className="modal-section-label"),
+                    html.Div(className="modal-row", children=[
+                        _settings_field("input-min-advantage", "Minimum Advantage (%)",
+                            "Only trade when the AI sees at least this % better odds than the market price. Higher = fewer, more selective trades.", 8),
+                        _settings_field("input-max-position", "Max Position Size ($)",
+                            "The largest single trade in dollars.", 20),
+                    ]),
+                    html.Div(className="modal-row", children=[
+                        _settings_field("input-max-deployed", "Max Deployed (%)",
+                            "Never put more than this % of your balance into open trades at once.", 80),
+                        _settings_field("input-scan-interval", "Scan Interval (minutes)",
+                            "How often the bot scans for new opportunities.", 10),
+                    ]),
+                    html.Div("MARKET FILTERS", className="modal-section-label"),
+                    html.Div(className="modal-row", children=[
+                        _settings_field("input-min-volume", "Min Market Volume ($)",
+                            "Skip markets with less than this amount in total trading volume. Thin markets are less reliable.", 1000),
+                        _settings_field("input-long-term-days", "Long-term Cutoff (days)",
+                            "Treat a market as long-term if it closes more than this many days from now.", 7),
+                    ]),
+                    html.Div(className="modal-row", children=[
+                        _settings_field("input-long-term-prob", "Long-term Min Probability (%)",
+                            "For long-term markets, only trade if the AI gives at least this % probability.", 80),
+                        html.Div(style={"flex": "1"}),
+                    ]),
+                ]),
+                html.Div(className="modal-footer", children=[
+                    html.Span("Cancel", id="modal-cancel-btn", n_clicks=0, className="btn-modal-cancel"),
+                    html.Span("Save Settings", id="modal-save-btn", n_clicks=0, className="btn-modal-save"),
+                ]),
+            ]),
+        ]),
 ])
 
-
-def fmt_currency(v): return f"${v:,.2f}"
-def fmt_pct(v): return f"{v:+.2f}%"
-def fmt_price(v): return f"{v:.4f}"
-def pnl_class(v): return "pnl-positive" if v >= 0 else "pnl-negative"
-def pnl_sign(v): return f"+${v:.2f}" if v >= 0 else f"-${abs(v):.2f}"
 
 def prob_color(prob):
     if prob is None:
@@ -165,14 +237,13 @@ def render_recent_trades(trades):
             html.Td(edge_pct, className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a78bfa"}),
             html.Td(html.Span(t["status"], className=status_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
         ]))
-    return _table(["TIME", "MARKET", "SIDE", "OUTCOME", "PROB", "SIZE", "PRICE", "EDGE", "STATUS"], rows)
+    return _table(["TIME", "MARKET", "SIDE", "OUTCOME", "PROB", "SIZE", "PRICE", "ADVANTAGE", "STATUS"], rows)
 
 
-def render_portfolio_chart(snapshots):
+def render_portfolio_chart(snapshots, baseline):
     if not snapshots:
-        snapshots = [{"timestamp": datetime.now().isoformat(), "total_value": config.STARTING_CAPITAL}]
+        snapshots = [{"timestamp": datetime.now().isoformat(), "total_value": baseline}]
 
-    baseline = config.STARTING_CAPITAL
     xs = [s["timestamp"] for s in snapshots]
     ys = [s["total_value"] for s in snapshots]
 
@@ -295,8 +366,86 @@ def toggle_mode(n_clicks):
     prevent_initial_call=True,
 )
 def reset_paper(_n_clicks):
-    database.reset_paper_trading(config.DB_PATH, config.STARTING_CAPITAL)
+    s = database.get_settings(config.DB_PATH)
+    database.reset_paper_trading(config.DB_PATH, s["paper_starting_capital"])
     return ""
+
+
+@app.callback(
+    Output("input-paper-capital", "value"),
+    Output("input-real-capital", "value"),
+    Output("input-min-advantage", "value"),
+    Output("input-max-position", "value"),
+    Output("input-max-deployed", "value"),
+    Output("input-scan-interval", "value"),
+    Output("input-min-volume", "value"),
+    Output("input-long-term-days", "value"),
+    Output("input-long-term-prob", "value"),
+    Input("settings-gear-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def populate_settings_form(_n):
+    s = database.get_settings(config.DB_PATH)
+    return (
+        s["paper_starting_capital"],
+        s["real_starting_capital"],
+        round(s["min_advantage"] * 100, 1),
+        s["max_position_size"],
+        round(s["max_deployed_pct"] * 100, 0),
+        s["scan_interval_minutes"],
+        s["min_market_volume"],
+        s["long_term_days"],
+        round(s["long_term_min_prob"] * 100, 0),
+    )
+
+
+@app.callback(
+    Output("settings-modal", "style"),
+    Input("settings-gear-btn", "n_clicks"),
+    Input("modal-close-btn", "n_clicks"),
+    Input("modal-cancel-btn", "n_clicks"),
+    Input("modal-save-btn", "n_clicks"),
+    State("input-paper-capital", "value"),
+    State("input-real-capital", "value"),
+    State("input-min-advantage", "value"),
+    State("input-max-position", "value"),
+    State("input-max-deployed", "value"),
+    State("input-scan-interval", "value"),
+    State("input-min-volume", "value"),
+    State("input-long-term-days", "value"),
+    State("input-long-term-prob", "value"),
+    prevent_initial_call=True,
+)
+def handle_settings_modal(
+    _gear, _close, _cancel, _save,
+    paper_cap, real_cap, min_adv, max_pos,
+    max_dep, scan_int, min_vol, lt_days, lt_prob,
+):
+    SHOW = {"display": "flex"}
+    HIDE = {"display": "none"}
+
+    if ctx.triggered_id == "settings-gear-btn":
+        return SHOW
+
+    if ctx.triggered_id == "modal-save-btn":
+        try:
+            settings = {
+                "paper_starting_capital": float(paper_cap),
+                "real_starting_capital": float(real_cap),
+                "min_advantage": float(min_adv) / 100.0,
+                "max_position_size": float(max_pos),
+                "max_deployed_pct": float(max_dep) / 100.0,
+                "scan_interval_minutes": int(float(scan_int)),
+                "min_market_volume": float(min_vol),
+                "long_term_days": int(float(lt_days)),
+                "long_term_min_prob": float(lt_prob) / 100.0,
+            }
+            database.save_settings(config.DB_PATH, settings)
+        except (TypeError, ValueError):
+            pass
+        return HIDE
+
+    return HIDE
 
 
 @app.callback(
@@ -315,20 +464,27 @@ def reset_paper(_n_clicks):
     Input("interval", "n_intervals"),
 )
 def refresh(_n):
-    open_trades = database.get_open_trades(config.DB_PATH)
-    recent_trades = database.get_recent_trades(config.DB_PATH, limit=20)
-    snapshots = database.get_portfolio_snapshots(config.DB_PATH, limit=200)
-    performance = database.get_performance_by_category(config.DB_PATH)
-    daily = database.get_daily_stats(config.DB_PATH)
-    total_pnl = database.get_total_pnl(config.DB_PATH)
-    deployed = database.get_deployed_capital(config.DB_PATH)
+    mode = database.get_app_state(config.DB_PATH, "trading_mode", "paper")
+    settings = database.get_settings(config.DB_PATH)
+    starting_capital = (
+        settings["paper_starting_capital"] if mode == "paper"
+        else settings["real_starting_capital"]
+    )
 
-    total_value = snapshots[-1]["total_value"] if snapshots else config.STARTING_CAPITAL
+    open_trades = database.get_open_trades(config.DB_PATH, mode)
+    recent_trades = database.get_recent_trades(config.DB_PATH, limit=20, mode=mode)
+    snapshots = database.get_portfolio_snapshots(config.DB_PATH, limit=200, mode=mode)
+    performance = database.get_performance_by_category(config.DB_PATH, mode)
+    daily = database.get_daily_stats(config.DB_PATH, mode)
+    total_pnl = database.get_total_pnl(config.DB_PATH, mode)
+    deployed = database.get_deployed_capital(config.DB_PATH, mode)
+
+    total_value = snapshots[-1]["total_value"] if snapshots else starting_capital
     cash = total_value - deployed
     daily_pnl = daily.get("daily_pnl") or 0
     daily_trades = daily.get("daily_trades") or 0
-    pnl_pct = (total_pnl / config.STARTING_CAPITAL * 100) if config.STARTING_CAPITAL else 0
-    daily_pct = (daily_pnl / config.STARTING_CAPITAL * 100) if config.STARTING_CAPITAL else 0
+    pnl_pct = (total_pnl / starting_capital * 100) if starting_capital else 0
+    daily_pct = (daily_pnl / starting_capital * 100) if starting_capital else 0
 
     def stat_card(label, value, sub=None, value_class=None):
         return html.Div(className="stat-card", children=[
@@ -353,7 +509,7 @@ def refresh(_n):
         stats,
         render_open_positions(open_trades), f"{len(open_trades)} positions",
         render_recent_trades(recent_trades), f"{len(recent_trades)} trades",
-        render_portfolio_chart(snapshots),
+        render_portfolio_chart(snapshots, starting_capital),
         render_perf_by_category(performance),
         render_gemini_reasoning(recent_trades),
         f"● {status}", status_class,
