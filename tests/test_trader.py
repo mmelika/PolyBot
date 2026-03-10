@@ -96,6 +96,37 @@ def test_execute_paper_trade(mock_db):
     assert trades[0]["size_usd"] == 15.0
 
 
+def _analysis_with_contested(probability=0.5, edge=0.15, confidence="medium",
+                               base_rate_estimate=0.45, contested=True):
+    return {
+        "probability": probability,
+        "edge": edge,
+        "confidence": confidence,
+        "base_rate_estimate": base_rate_estimate,
+        "contested": contested,
+    }
+
+
+def test_should_trade_rejects_contested_with_low_confidence():
+    analysis = _analysis_with_contested(contested=True, confidence="medium", edge=0.12)
+    assert trader.should_trade(analysis, _market(3)) is False
+
+
+def test_should_trade_rejects_contested_with_insufficient_edge():
+    analysis = _analysis_with_contested(contested=True, confidence="high", edge=0.10)
+    assert trader.should_trade(analysis, _market(3)) is False
+
+
+def test_should_trade_accepts_contested_high_conf_large_edge():
+    analysis = _analysis_with_contested(contested=True, confidence="high", edge=0.20)
+    assert trader.should_trade(analysis, _market(3)) is True
+
+
+def test_should_trade_uncontested_normal_rules_apply():
+    analysis = _analysis_with_contested(contested=False, confidence="medium", edge=0.10)
+    assert trader.should_trade(analysis, _market(3)) is True
+
+
 def test_skip_already_open_market(mock_db):
     import database
     trade = {

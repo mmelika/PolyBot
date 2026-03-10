@@ -35,6 +35,9 @@ def should_trade(analysis: dict, market: dict, min_edge: float = config.MIN_EDGE
                     return False
         except (ValueError, AttributeError):
             pass  # unparseable date — skip long-term check
+    if analysis.get("contested"):
+        if analysis.get("confidence") != "high" or analysis.get("edge", 0) < 0.15:
+            return False
     return True
 
 
