@@ -106,6 +106,13 @@ app.layout = html.Div([
                     ]),
                     html.Div(id="gemini-reasoning"),
                 ]),
+                html.Div(className="section-card", children=[
+                    html.Div(className="section-header", children=[
+                        html.Span("Passed On", className="section-title"),
+                        html.Span(id="passed-on-badge", className="badge"),
+                    ]),
+                    html.Div(id="passed-on-table"),
+                ]),
             ], style={"flex": "1"}),
         ], style={"display": "flex", "gap": "16px"}),
     ], style={"padding": "16px"}),
@@ -347,6 +354,38 @@ def render_gemini_reasoning(trades):
     return html.Div("No analysis yet", className="empty-state")
 
 
+def render_passed_on(skipped):
+    if not skipped:
+        return html.Div("No skipped markets yet", className="empty-state")
+    rows = []
+    for s in skipped[:20]:
+        prob = s.get("probability")
+        prob_str = f"{prob:.0%}" if prob is not None else "—"
+        edge = s.get("edge")
+        edge_str = f"{edge:.1%}" if edge is not None else "—"
+        conf = s.get("confidence") or "—"
+        outcome_cls = "pill-yes" if s.get("side") == "YES" else "pill-no"
+        reason = s.get("skip_reason") or "—"
+        reason_color = "#ef4444" if any(k in reason for k in ("confidence", "contested")) else "#fbbf24"
+        rows.append(html.Tr([
+            html.Td(s["question"], className="market-cell", title=s["question"],
+                    style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(html.Span(s.get("side", "—"), className=outcome_cls),
+                    style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(prob_str, className="prob-value",
+                    style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)",
+                           "color": prob_color(prob)}),
+            html.Td(edge_str, className="mono",
+                    style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)",
+                           "color": "#a78bfa"}),
+            html.Td(conf, style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)",
+                                  "color": "#a1a1aa", "fontSize": "11px"}),
+            html.Td(reason, style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)",
+                                    "color": reason_color, "fontSize": "11px"}),
+        ]))
+    return _table(["MARKET", "OUTCOME", "PROB", "EDGE", "CONF", "WHY NOT PICKED"], rows)
+
+
 @app.callback(
     Output("mode-btn", "children"),
     Output("mode-btn", "className"),
@@ -457,6 +496,8 @@ def handle_settings_modal(
     Output("portfolio-chart", "figure"),
     Output("perf-by-category", "children"),
     Output("gemini-reasoning", "children"),
+    Output("passed-on-table", "children"),
+    Output("passed-on-badge", "children"),
     Output("status-pill", "children"),
     Output("status-pill", "className"),
     Output("clock", "children"),
@@ -476,6 +517,7 @@ def refresh(_n):
     snapshots = database.get_portfolio_snapshots(config.DB_PATH, limit=200, mode=mode)
     performance = database.get_performance_by_category(config.DB_PATH, mode)
     daily = database.get_daily_stats(config.DB_PATH, mode)
+    skipped = database.get_skipped_markets(config.DB_PATH, limit=20, mode=mode)
     total_pnl = database.get_total_pnl(config.DB_PATH, mode)
     deployed = database.get_deployed_capital(config.DB_PATH, mode)
 
@@ -512,6 +554,7 @@ def refresh(_n):
         render_portfolio_chart(snapshots, starting_capital),
         render_perf_by_category(performance),
         render_gemini_reasoning(recent_trades),
+        render_passed_on(skipped), f"{len(skipped)} markets",
         f"● {status}", status_class,
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "● Next refresh in 5s",
