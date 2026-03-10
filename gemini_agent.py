@@ -24,6 +24,22 @@ ALWAYS respond with valid JSON in this exact format:
 
 Do not include any text outside the JSON."""
 
+SYSTEM_PROMPT_SCREEN = """You are a highly selective prediction market analyst. You have only $1,000 to your name — this money is irreplaceable and every single bet matters enormously.
+
+You will be shown a list of active prediction markets. Flag only markets where you have genuine informational edge — where you know enough to estimate probability meaningfully better than the current market price.
+
+Be extremely selective. Default to passing on most markets. ONLY flag a market if ALL of these are true:
+- You have specific knowledge about this topic (sport, team, event, candidate, asset)
+- The market price looks clearly mispriced based on what you know
+- This is NOT a coin flip, a tight multi-team race, or any situation where the outcome is genuinely near-random
+
+Return a JSON array. Return an empty array [] if nothing is worth investigating.
+
+ALWAYS respond with valid JSON array only, no other text:
+[
+  { "market_id": "<id>", "initial_lean": "YES or NO", "reason": "<one sentence>" }
+]"""
+
 
 def build_performance_context(performance: dict) -> str:
     if not performance:
@@ -61,6 +77,29 @@ def parse_gemini_response(raw: str) -> Optional[dict]:
         return None
 
 
+def parse_screen_response(raw: str) -> list:
+    raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
+    raw = re.sub(r"```\s*$", "", raw).strip()
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return []
+        result = []
+        for item in data:
+            if not all(k in item for k in ("market_id", "initial_lean", "reason")):
+                continue
+            if item["initial_lean"] not in ("YES", "NO"):
+                continue
+            result.append({
+                "market_id": str(item["market_id"]),
+                "initial_lean": item["initial_lean"],
+                "reason": str(item["reason"]),
+            })
+        return result
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+
 def calculate_position_size(
     probability: float,
     entry_price: float,
@@ -82,6 +121,41 @@ def calculate_position_size(
         return 0.0
     size = kelly_f * kelly_fraction * portfolio_value
     return min(size, max_position)
+
+
+def screen_markets(markets: list, open_market_ids: set) -> list:
+    if not GENAI_AVAILABLE:
+        raise RuntimeError("google-generativeai not installed")
+    if not markets:
+        return []
+
+    lines = ["Here are the active prediction markets. Flag only ones where you have genuine edge:\n"]
+    for m in markets:
+        lines.append(
+            f"ID: {m['market_id']} | {m['question']} | "
+            f"YES={m['yes_price']:.2f} NO={m['no_price']:.2f} | "
+            f"Vol=${m['volume']:,.0f} | Closes: {m['end_date_iso'][:10]} | Cat: {m.get('category','other')}"
+        )
+    prompt = "\n".join(lines)
+
+    try:
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT_SCREEN,
+                temperature=0.2,
+            ),
+        )
+        raw_text = response.text
+    except Exception as e:
+        print(f"[gemini_agent] Screener API error: {e}")
+        return []
+
+    flagged = parse_screen_response(raw_text)
+    # Remove any market already held as an open position
+    return [f for f in flagged if f["market_id"] not in open_market_ids]
 
 
 def analyze_market(market: dict, performance: dict, use_web_search: bool = True) -> Optional[dict]:

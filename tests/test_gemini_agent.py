@@ -60,3 +60,71 @@ def test_calculate_position_size_capped():
         kelly_fraction=0.25,
     )
     assert size <= 20.0
+
+
+def test_parse_screen_response_valid():
+    raw = '[{"market_id": "abc", "initial_lean": "YES", "reason": "Strong trend"}]'
+    result = ga.parse_screen_response(raw)
+    assert len(result) == 1
+    assert result[0]["market_id"] == "abc"
+    assert result[0]["initial_lean"] == "YES"
+
+
+def test_parse_screen_response_empty_array():
+    result = ga.parse_screen_response("[]")
+    assert result == []
+
+
+def test_parse_screen_response_invalid_returns_empty():
+    result = ga.parse_screen_response("not json at all")
+    assert result == []
+
+
+def test_parse_screen_response_filters_bad_entries():
+    # entries missing required fields are dropped
+    raw = '[{"market_id": "a", "initial_lean": "YES", "reason": "ok"}, {"market_id": "b"}]'
+    result = ga.parse_screen_response(raw)
+    assert len(result) == 1
+    assert result[0]["market_id"] == "a"
+
+
+def test_screen_markets_returns_flagged(monkeypatch):
+    markets = [
+        {"market_id": "m1", "question": "Will X win?", "yes_price": 0.4,
+         "no_price": 0.6, "volume": 5000, "end_date_iso": "2026-04-01T00:00:00Z", "category": "sports"},
+        {"market_id": "m2", "question": "Will Y happen?", "yes_price": 0.6,
+         "no_price": 0.4, "volume": 2000, "end_date_iso": "2026-04-01T00:00:00Z", "category": "politics"},
+    ]
+    open_ids = set()
+    mock_response = MagicMock()
+    mock_response.text = '[{"market_id": "m1", "initial_lean": "YES", "reason": "Good edge"}]'
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = mock_response
+
+    with patch("gemini_agent.genai") as mock_genai:
+        mock_genai.Client.return_value = mock_client
+        result = ga.screen_markets(markets, open_ids)
+
+    assert len(result) == 1
+    assert result[0]["market_id"] == "m1"
+
+
+def test_screen_markets_excludes_open_positions(monkeypatch):
+    markets = [
+        {"market_id": "m1", "question": "Q1?", "yes_price": 0.4, "no_price": 0.6,
+         "volume": 5000, "end_date_iso": "2026-04-01T00:00:00Z", "category": "sports"},
+    ]
+    open_ids = {"m1"}  # already open
+    mock_response = MagicMock()
+    mock_response.text = '[{"market_id": "m1", "initial_lean": "YES", "reason": "ok"}]'
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = mock_response
+
+    with patch("gemini_agent.genai") as mock_genai:
+        mock_genai.Client.return_value = mock_client
+        result = ga.screen_markets(markets, open_ids)
+
+    # m1 is already open — must be filtered out even if Gemini flagged it
+    assert all(f["market_id"] != "m1" for f in result)
