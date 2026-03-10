@@ -119,6 +119,8 @@ app.layout = html.Div([
         ], style={"display": "flex", "gap": "16px"}),
     ], style={"padding": "16px"}),
     html.Div(id="reset-dummy", style={"display": "none"}),
+    dcc.Store(id="buy-more-store"),
+    html.Div(id="buy-more-dummy", style={"display": "none"}),
     # Settings modal (hidden by default)
     html.Div(
         id="settings-modal",
@@ -170,6 +172,49 @@ app.layout = html.Div([
                 ]),
             ]),
         ]),
+    html.Div(
+        id="buy-more-modal",
+        className="modal-overlay",
+        style={"display": "none"},
+        children=[
+            html.Div(className="modal-box", style={"maxWidth": "440px"}, children=[
+                html.Div(className="modal-header", children=[
+                    html.Div("+ Buy More", className="modal-title"),
+                    html.Span("✕", id="buy-more-close-btn", n_clicks=0, className="modal-close-btn"),
+                ]),
+                html.Div(className="modal-body", children=[
+                    html.Div(id="buy-more-question", style={
+                        "color": "#ffffff", "fontSize": "13px", "fontWeight": "500",
+                        "marginBottom": "12px", "lineHeight": "1.4",
+                    }),
+                    html.Div(className="modal-row", children=[
+                        html.Div([
+                            html.Div("OUTCOME", className="settings-label"),
+                            html.Div(id="buy-more-outcome", className="settings-desc"),
+                        ], style={"flex": "1"}),
+                        html.Div([
+                            html.Div("PRICE", className="settings-label"),
+                            html.Div(id="buy-more-price", className="settings-desc"),
+                        ], style={"flex": "1"}),
+                    ]),
+                    html.Div("AMOUNT ($)", className="modal-section-label", style={"marginTop": "16px"}),
+                    dcc.Input(
+                        id="buy-more-amount",
+                        type="number",
+                        placeholder="e.g. 10",
+                        className="settings-input",
+                        debounce=False,
+                        min=1,
+                        style={"width": "100%"},
+                    ),
+                ]),
+                html.Div(className="modal-footer", children=[
+                    html.Span("Cancel", id="buy-more-cancel-btn", n_clicks=0, className="btn-modal-cancel"),
+                    html.Span("Buy", id="buy-more-confirm-btn", n_clicks=0, className="btn-modal-save"),
+                ]),
+            ]),
+        ]
+    ),
 ])
 
 

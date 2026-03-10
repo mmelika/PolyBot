@@ -547,3 +547,22 @@ tbody td.cell-primary { color: #ffffff; }
   transition: background 150ms;
 }
 .btn-modal-save:hover { background: rgba(167,139,250,0.25); }
+
+/* ── Buy More button (open positions row) ────────────────────────── */
+.btn-buy-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: rgba(34,197,94,0.10);
+  color: #22c55e;
+  border: 1px solid rgba(34,197,94,0.25);
+  border-radius: 999px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 150ms;
+  user-select: none;
+}
+.btn-buy-more:hover { background: rgba(34,197,94,0.20); }
