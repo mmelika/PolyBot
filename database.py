@@ -221,6 +221,64 @@ def get_app_state(db_path: str, key: str, default: str = None) -> Optional[str]:
     return row[0] if row else default
 
 
+# Settings keys with their config defaults and type converters
+_SETTINGS_META = {
+    "paper_starting_capital": float,
+    "real_starting_capital": float,
+    "min_advantage": float,
+    "max_position_size": float,
+    "max_deployed_pct": float,
+    "scan_interval_minutes": int,
+    "min_market_volume": float,
+    "long_term_days": int,
+    "long_term_min_prob": float,
+}
+
+
+def _settings_defaults() -> dict:
+    import config
+    return {
+        "paper_starting_capital": config.STARTING_CAPITAL,
+        "real_starting_capital": config.STARTING_CAPITAL,
+        "min_advantage": config.MIN_EDGE,
+        "max_position_size": config.MAX_POSITION_SIZE,
+        "max_deployed_pct": config.MAX_DEPLOYED_PCT,
+        "scan_interval_minutes": config.SCAN_INTERVAL_MINUTES,
+        "min_market_volume": float(config.MIN_MARKET_VOLUME),
+        "long_term_days": config.LONG_TERM_DAYS,
+        "long_term_min_prob": config.LONG_TERM_MIN_PROB,
+    }
+
+
+def get_settings(db_path: str) -> dict:
+    result = _settings_defaults()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute(
+        "SELECT key, value FROM app_state WHERE key IN ({})".format(
+            ",".join("?" * len(_SETTINGS_META))
+        ),
+        list(_SETTINGS_META.keys()),
+    )
+    for key, value in cursor.fetchall():
+        result[key] = _SETTINGS_META[key](value)
+    conn.close()
+    return result
+
+
+def save_settings(db_path: str, settings: dict) -> None:
+    conn = sqlite3.connect(db_path)
+    for key, value in settings.items():
+        if key not in _SETTINGS_META:
+            continue
+        conn.execute("""
+            INSERT INTO app_state (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """, (key, str(value)))
+    conn.commit()
+    conn.close()
+
+
 def get_trade_by_market_id(db_path: str, market_id: str) -> Optional[dict]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -234,12 +292,18 @@ def get_trade_by_market_id(db_path: str, market_id: str) -> Optional[dict]:
 
 
 def reset_paper_trading(db_path: str, starting_capital: float) -> None:
+    """Delete all paper-mode trades and snapshots, then seed one snapshot at starting_capital."""
     conn = sqlite3.connect(db_path)
-    conn.execute("DELETE FROM trades WHERE mode = 'paper'")
-    conn.execute("DELETE FROM portfolio_snapshots WHERE mode = 'paper'")
-    conn.execute(
-        "INSERT INTO portfolio_snapshots (total_value, cash_balance, mode) VALUES (?, ?, 'paper')",
-        (starting_capital, starting_capital),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute("DELETE FROM trades WHERE mode = 'paper'")
+        conn.execute("DELETE FROM portfolio_snapshots WHERE mode = 'paper'")
+        conn.execute(
+            "INSERT INTO portfolio_snapshots (total_value, cash_balance, mode) VALUES (?, ?, 'paper')",
+            (starting_capital, starting_capital),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
