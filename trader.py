@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from datetime import datetime, timezone
@@ -7,6 +8,8 @@ import database
 import gemini_agent
 import polymarket_client
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+log = logging.getLogger("trader")
 
 _trader_thread: Optional[threading.Thread] = None
 _running = False
@@ -56,7 +59,7 @@ def execute_trade(
             size_usd=size_usd,
         )
         if not order_id:
-            print(f"[trader] Real order failed for {market['question'][:50]}")
+            log.warning("[trader] Real order failed for %s", market['question'][:50])
             return None
 
     trade = {
@@ -77,8 +80,9 @@ def execute_trade(
         "closes_at": market.get("end_date_iso", "")[:10],
     }
     trade_id = database.insert_trade(db_path, trade)
-    print(f"[trader] {'Paper' if mode == 'paper' else 'Real'} trade: {market['question'][:50]} | "
-          f"{outcome} @ {analysis['entry_price']:.3f} | edge={analysis['edge']:.1%} | ${size_usd:.2f}")
+    log.info("[trader] %s trade: %s | %s @ %.3f | edge=%.1f%% | $%.2f",
+             'Paper' if mode == 'paper' else 'Real', market['question'][:50],
+             outcome, analysis['entry_price'], analysis['edge'] * 100, size_usd)
     return trade_id
 
 
@@ -101,9 +105,11 @@ def scan_and_trade(db_path: str) -> int:
     try:
         markets = polymarket_client.get_active_markets()
     except Exception as e:
-        print(f"[trader] Failed to fetch markets: {e}")
+        log.error("[trader] Failed to fetch markets: %s", e)
         _status = "RUNNING"
         return 0
+
+    log.info("[trader] Fetched %d markets, mode=%s, deployable=$%.2f", len(markets), mode, max_deployable)
 
     trades_placed = 0
     for market in markets:
@@ -112,9 +118,15 @@ def scan_and_trade(db_path: str) -> int:
         try:
             analysis = gemini_agent.analyze_market(market, performance)
         except Exception as e:
-            print(f"[trader] Gemini error: {e}")
+            log.error("[trader] Gemini error: %s", e)
             continue
-        if not analysis or not should_trade(analysis, market):
+        if not analysis:
+            log.info("[trader] No analysis for: %s", market['question'][:50])
+            continue
+        log.info("[trader] %s | prob=%.2f edge=%.1f%% conf=%s",
+                 market['question'][:40], analysis['probability'],
+                 analysis['edge'] * 100, analysis['confidence'])
+        if not should_trade(analysis, market):
             continue
         size_usd = gemini_agent.calculate_position_size(
             probability=analysis["probability"],
@@ -145,7 +157,7 @@ def _trading_loop(db_path: str) -> None:
         try:
             scan_and_trade(db_path)
         except Exception as e:
-            print(f"[trader] Loop error: {e}")
+            log.error("[trader] Loop error: %s", e)
         for _ in range(config.SCAN_INTERVAL_MINUTES * 60):
             if not _running:
                 break

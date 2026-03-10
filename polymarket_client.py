@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta
+import json as _json
 from typing import Optional
 import requests
 import config
@@ -31,22 +32,52 @@ def _get_client():
     )
 
 
+def _parse_json_str(val):
+    """Parse a JSON string field from Gamma API (outcomes, prices, tokenIds)."""
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        try:
+            return _json.loads(val)
+        except (_json.JSONDecodeError, ValueError):
+            return []
+    return []
+
+
 def normalize_market(raw: dict) -> dict:
-    """Convert raw Polymarket API market dict to our standard format."""
-    tokens = raw.get("tokens", [])
-    yes_token = next((t for t in tokens if t.get("outcome", "").lower() == "yes"), tokens[0] if tokens else {})
-    no_token = next((t for t in tokens if t.get("outcome", "").lower() == "no"), tokens[1] if len(tokens) > 1 else {})
+    """Convert raw Gamma API market dict to our standard format.
+
+    Handles the Gamma API field names: conditionId, endDate,
+    outcomes (JSON string), outcomePrices (JSON string),
+    clobTokenIds (JSON string).
+    """
+    outcomes = _parse_json_str(raw.get("outcomes", "[]"))
+    prices = _parse_json_str(raw.get("outcomePrices", "[]"))
+    token_ids = _parse_json_str(raw.get("clobTokenIds", "[]"))
+
+    # Map outcome index 0 → "yes", index 1 → "no" for binary markets
+    yes_price = float(prices[0]) if len(prices) > 0 else 0.5
+    no_price = float(prices[1]) if len(prices) > 1 else 0.5
+    yes_token_id = token_ids[0] if len(token_ids) > 0 else ""
+    no_token_id = token_ids[1] if len(token_ids) > 1 else ""
+
+    # Detect category from events if available
+    events = raw.get("events", [])
+    category = "other"
+    if events and isinstance(events, list) and isinstance(events[0], dict):
+        category = events[0].get("category", "other") or "other"
+
     return {
-        "market_id": raw.get("condition_id", ""),
-        "condition_id": raw.get("condition_id", ""),
+        "market_id": raw.get("conditionId", "") or raw.get("condition_id", ""),
+        "condition_id": raw.get("conditionId", "") or raw.get("condition_id", ""),
         "question": raw.get("question", ""),
-        "category": raw.get("category", "other"),
+        "category": category,
         "volume": float(raw.get("volume", 0)),
-        "end_date_iso": raw.get("end_date_iso", ""),
-        "yes_price": float(yes_token.get("price", 0.5)),
-        "no_price": float(no_token.get("price", 0.5)),
-        "yes_token_id": yes_token.get("token_id", ""),
-        "no_token_id": no_token.get("token_id", ""),
+        "end_date_iso": raw.get("endDate", "") or raw.get("end_date_iso", ""),
+        "yes_price": yes_price,
+        "no_price": no_price,
+        "yes_token_id": yes_token_id,
+        "no_token_id": no_token_id,
         "active": raw.get("active", True),
         "closed": raw.get("closed", False),
     }
@@ -89,7 +120,10 @@ def get_active_markets(
             continue
         if volume < min_volume:
             continue
-        end_date_str = raw.get("end_date_iso", "")
+        # Gamma API uses "endDate" not "end_date_iso"
+        end_date_str = raw.get("endDate", "") or raw.get("end_date_iso", "")
+        if not end_date_str:
+            continue
         try:
             end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
         except (ValueError, AttributeError):

@@ -9,7 +9,7 @@ POLYMARKET_PROXY_ADDRESS = os.getenv("POLYMARKET_PROXY_ADDRESS", "")
 POLYMARKET_HOST = "https://clob.polymarket.com"
 POLYMARKET_CHAIN_ID = 137
 
-STARTING_CAPITAL = float(os.getenv("STARTING_CAPITAL", "500"))
+STARTING_CAPITAL = float(os.getenv("STARTING_CAPITAL", "5000"))
 MAX_POSITION_SIZE = float(os.getenv("MAX_POSITION_SIZE", "20"))
 MIN_EDGE = float(os.getenv("MIN_EDGE", "0.08"))
 KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))
