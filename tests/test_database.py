@@ -146,3 +146,41 @@ def test_research_brief_column_exists(tmp_path):
     cols = [row[1] for row in cursor.fetchall()]
     conn.close()
     assert "research_brief" in cols
+
+
+def test_reset_paper_trading_wipes_paper_data(tmp_path):
+    db = str(tmp_path / "test.db")
+    database.init_db(db)
+    database.insert_trade(db, {
+        "market_id": "m1", "question": "Q?", "category": "other",
+        "outcome": "YES", "side": "BUY", "size_usd": 50.0,
+        "entry_price": 0.5, "current_price": 0.5, "pnl": 0.0,
+        "status": "FILLED", "mode": "paper",
+        "gemini_probability": 0.6, "gemini_reasoning": "r",
+        "edge": 0.1, "closes_at": "2026-04-01",
+    })
+    database.snapshot_portfolio(db, 4800.0, 4750.0, "paper")
+    database.reset_paper_trading(db, starting_capital=5000.0)
+    assert database.get_open_trades(db) == []
+    snaps = database.get_portfolio_snapshots(db)
+    assert len(snaps) == 1
+    assert snaps[0]["total_value"] == 5000.0
+    assert snaps[0]["cash_balance"] == 5000.0
+
+
+def test_reset_paper_trading_preserves_real_data(tmp_path):
+    db = str(tmp_path / "test.db")
+    database.init_db(db)
+    database.insert_trade(db, {
+        "market_id": "m2", "question": "Q2?", "category": "other",
+        "outcome": "YES", "side": "BUY", "size_usd": 100.0,
+        "entry_price": 0.6, "current_price": 0.6, "pnl": 0.0,
+        "status": "FILLED", "mode": "real",
+        "gemini_probability": 0.7, "gemini_reasoning": "r",
+        "edge": 0.1, "closes_at": "2026-04-01",
+    })
+    database.snapshot_portfolio(db, 10000.0, 9900.0, "real")
+    database.reset_paper_trading(db, starting_capital=5000.0)
+    real_trades = database.get_open_trades(db)
+    assert len(real_trades) == 1
+    assert real_trades[0]["mode"] == "real"

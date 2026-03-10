@@ -231,3 +231,15 @@ def get_trade_by_market_id(db_path: str, market_id: str) -> Optional[dict]:
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def reset_paper_trading(db_path: str, starting_capital: float) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM trades WHERE mode = 'paper'")
+    conn.execute("DELETE FROM portfolio_snapshots WHERE mode = 'paper'")
+    conn.execute(
+        "INSERT INTO portfolio_snapshots (total_value, cash_balance, mode) VALUES (?, ?, 'paper')",
+        (starting_capital, starting_capital),
+    )
+    conn.commit()
+    conn.close()
