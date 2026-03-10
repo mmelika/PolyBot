@@ -206,6 +206,7 @@ def render_open_positions(trades):
         outcome_cls = "pill-yes" if t["outcome"] == "YES" else "pill-no"
         prob = t.get("gemini_probability")
         prob_str = f"{prob:.0%}" if prob is not None else "—"
+        mp = max_profit(t["size_usd"], t["entry_price"])
         rows.append(html.Tr([
             html.Td(t["question"], className="market-cell", title=t["question"], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
@@ -214,9 +215,15 @@ def render_open_positions(trades):
             html.Td(fmt_price(t["entry_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(fmt_price(t["current_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(pnl_sign(pnl), className=pnl_class(pnl), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(pnl_sign(mp), className="pnl-positive", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td((t.get("closes_at") or "")[:10], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#52525b", "fontSize": "11px"}),
+            html.Td(
+                html.Span("+", id={"type": "buy-more-btn", "index": t["id"]},
+                          n_clicks=0, className="btn-buy-more"),
+                style={"padding": "6px 8px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "textAlign": "center"},
+            ),
         ]))
-    return _table(["MARKET", "OUTCOME", "PROB", "SIZE", "ENTRY", "CURRENT", "P&L", "CLOSES"], rows)
+    return _table(["MARKET", "OUTCOME", "PROB", "SIZE", "ENTRY", "CURRENT", "P&L", "MAX PROFIT", "CLOSES", ""], rows)
 
 
 def render_recent_trades(trades):
