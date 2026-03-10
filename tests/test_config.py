@@ -40,3 +40,17 @@ def test_config_loads_env_overrides():
         assert config.MAX_POSITION_SIZE == 50
         assert config.MIN_EDGE == 0.10
         assert config.TRADING_MODE == "real"
+
+
+def test_config_long_term_defaults():
+    env = {
+        "GEMINI_API_KEY": "test-key",
+        "POLYMARKET_PRIVATE_KEY": "0xabc",
+        "POLYMARKET_PROXY_ADDRESS": "0xdef",
+    }
+    with patch.dict(os.environ, env, clear=True):
+        import importlib
+        import config
+        importlib.reload(config)
+        assert config.LONG_TERM_DAYS == 7
+        assert config.LONG_TERM_MIN_PROB == 0.80

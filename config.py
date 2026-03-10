@@ -21,3 +21,6 @@ MIN_MARKET_VOLUME = 1000  # USD
 MIN_HOURS_TO_CLOSE = 24
 MAX_MARKETS_TO_SCAN = 50
 DB_PATH = "data/polybot.db"
+
+LONG_TERM_DAYS = 7          # markets closing beyond this require high probability
+LONG_TERM_MIN_PROB = 0.80   # minimum probability to trade a long-term market
