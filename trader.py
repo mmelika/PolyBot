@@ -1,5 +1,6 @@
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Optional
 import config
 import database
@@ -16,10 +17,22 @@ def get_status() -> str:
     return _status
 
 
-def should_trade(analysis: dict, min_edge: float = config.MIN_EDGE) -> bool:
+def should_trade(analysis: dict, market: dict, min_edge: float = config.MIN_EDGE) -> bool:
     if analysis.get("confidence") == "low":
         return False
-    return analysis.get("edge", 0) >= min_edge
+    if analysis.get("edge", 0) < min_edge:
+        return False
+    end_date_str = market.get("end_date_iso", "")
+    if end_date_str:
+        try:
+            end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+            days_to_close = (end_date - datetime.now(timezone.utc)).total_seconds() / 86400
+            if days_to_close > config.LONG_TERM_DAYS:
+                if analysis.get("probability", 0) < config.LONG_TERM_MIN_PROB:
+                    return False
+        except (ValueError, AttributeError):
+            pass  # unparseable date — skip long-term check
+    return True
 
 
 def is_market_already_open(db_path: str, market_id: str) -> bool:
@@ -101,7 +114,7 @@ def scan_and_trade(db_path: str) -> int:
         except Exception as e:
             print(f"[trader] Gemini error: {e}")
             continue
-        if not analysis or not should_trade(analysis):
+        if not analysis or not should_trade(analysis, market):
             continue
         size_usd = gemini_agent.calculate_position_size(
             probability=analysis["probability"],
