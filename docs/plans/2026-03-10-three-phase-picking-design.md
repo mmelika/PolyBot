@@ -12,6 +12,18 @@ The current `analyze_market()` function has two compounding flaws:
 
 The Nottingham Forest relegation pick exemplifies both problems: 1 point above the drop zone in a 3-way battle is ~33-40% probability by base rate, not 85%.
 
+## Core Framing: Treat Every Dollar as Irreplaceable
+
+All three phases must operate under the assumption that this is the last $1000 available. This framing is baked into the prompts at every phase:
+
+- **Phase 1 (Screener):** Only flag a market if you would genuinely stake money you cannot afford to lose. Default to passing.
+- **Phase 2 (Research):** Actively seek reasons NOT to bet. Find the strongest counterargument. If the research turns up uncertainty, that is a result — record it and let Phase 3 decide.
+- **Phase 3 (Probability):** Start from the base rate. You need clear, specific evidence to move meaningfully away from it. If you cannot articulate a concrete reason, stay at the base rate and mark `confidence: "low"`.
+
+The goal is extreme selectivity. The bot should make very few picks and be highly confident in each one.
+
+---
+
 ## Solution: Three-Phase Pipeline
 
 Replace `analyze_market()` with three distinct functions, each with a clear responsibility.
