@@ -20,18 +20,18 @@ def get_status() -> str:
     return _status
 
 
-def should_trade(analysis: dict, market: dict, min_edge: float = config.MIN_EDGE) -> bool:
+def should_trade(analysis: dict, market: dict, settings: dict) -> bool:
     if analysis.get("confidence") == "low":
         return False
-    if analysis.get("edge", 0) < min_edge:
+    if analysis.get("edge", 0) < settings["min_advantage"]:
         return False
     end_date_str = market.get("end_date_iso", "")
     if end_date_str:
         try:
             end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
             days_to_close = (end_date - datetime.now(timezone.utc)).total_seconds() / 86400
-            if days_to_close > config.LONG_TERM_DAYS:
-                if analysis.get("probability", 0) < config.LONG_TERM_MIN_PROB:
+            if days_to_close > settings["long_term_days"]:
+                if analysis.get("probability", 0) < settings["long_term_min_prob"]:
                     return False
         except (ValueError, AttributeError):
             pass  # unparseable date — skip long-term check
@@ -97,12 +97,18 @@ def scan_and_trade(db_path: str) -> int:
     _status = "SCANNING"
 
     mode = database.get_app_state(db_path, "trading_mode", config.TRADING_MODE)
-    performance = database.get_performance_by_category(db_path)
-    deployed = database.get_deployed_capital(db_path)
+    settings = database.get_settings(db_path)
+    starting_capital = (
+        settings["paper_starting_capital"] if mode == "paper"
+        else settings["real_starting_capital"]
+    )
 
-    snapshots = database.get_portfolio_snapshots(db_path, limit=1)
-    total_value = snapshots[-1]["total_value"] if snapshots else config.STARTING_CAPITAL
-    max_deployable = total_value * config.MAX_DEPLOYED_PCT - deployed
+    performance = database.get_performance_by_category(db_path, mode)
+    deployed = database.get_deployed_capital(db_path, mode)
+
+    snapshots = database.get_portfolio_snapshots(db_path, limit=1, mode=mode)
+    total_value = snapshots[-1]["total_value"] if snapshots else starting_capital
+    max_deployable = total_value * settings["max_deployed_pct"] - deployed
 
     if max_deployable <= 0:
         _status = "RUNNING"
@@ -119,7 +125,7 @@ def scan_and_trade(db_path: str) -> int:
              len(markets), mode, max_deployable)
 
     # Phase 1: Screen
-    open_ids = {t["market_id"] for t in database.get_open_trades(db_path)}
+    open_ids = {t["market_id"] for t in database.get_open_trades(db_path, mode)}
     try:
         flagged = gemini_agent.screen_markets(markets, open_ids)
     except Exception as e:
@@ -163,7 +169,7 @@ def scan_and_trade(db_path: str) -> int:
                  analysis["edge"] * 100, analysis["confidence"],
                  analysis.get("contested", False))
 
-        if not should_trade(analysis, market):
+        if not should_trade(analysis, market, settings):
             continue
 
         size_usd = gemini_agent.calculate_position_size(
@@ -171,6 +177,7 @@ def scan_and_trade(db_path: str) -> int:
             entry_price=analysis["entry_price"],
             portfolio_value=total_value,
         )
+        size_usd = min(size_usd, settings["max_position_size"])
         if size_usd < 1.0:
             continue
 
@@ -178,10 +185,10 @@ def scan_and_trade(db_path: str) -> int:
         trade_id = execute_trade(db_path, market, analysis, size_usd, mode, research_brief_json)
         if trade_id:
             trades_placed += 1
-            new_deployed = database.get_deployed_capital(db_path)
+            new_deployed = database.get_deployed_capital(db_path, mode)
             database.snapshot_portfolio(
                 db_path,
-                total_value=config.STARTING_CAPITAL + database.get_total_pnl(db_path),
+                total_value=starting_capital + database.get_total_pnl(db_path, mode),
                 cash_balance=total_value - new_deployed,
                 mode=mode,
             )
@@ -198,7 +205,9 @@ def _trading_loop(db_path: str) -> None:
             scan_and_trade(db_path)
         except Exception as e:
             log.error("[trader] Loop error: %s", e)
-        for _ in range(config.SCAN_INTERVAL_MINUTES * 60):
+        settings = database.get_settings(db_path)
+        interval_seconds = int(settings["scan_interval_minutes"]) * 60
+        for _ in range(interval_seconds):
             if not _running:
                 break
             time.sleep(1)
