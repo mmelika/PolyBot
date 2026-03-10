@@ -648,5 +648,62 @@ def open_buy_more(n_clicks_list):
     }
 
 
+@app.callback(
+    Output("buy-more-modal", "style"),
+    Output("buy-more-question", "children"),
+    Output("buy-more-outcome", "children"),
+    Output("buy-more-price", "children"),
+    Output("buy-more-amount", "value"),
+    Input("buy-more-store", "data"),
+    Input("buy-more-close-btn", "n_clicks"),
+    Input("buy-more-cancel-btn", "n_clicks"),
+    Input("buy-more-confirm-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def toggle_buy_more_modal(store_data, _close, _cancel, _confirm):
+    SHOW = {"display": "flex"}
+    HIDE = {"display": "none"}
+    trigger = ctx.triggered_id
+    if trigger in ("buy-more-close-btn", "buy-more-cancel-btn", "buy-more-confirm-btn"):
+        return HIDE, dash.no_update, dash.no_update, dash.no_update, None
+    if not store_data:
+        raise dash.exceptions.PreventUpdate
+    question = store_data.get("question", "")
+    outcome = store_data.get("outcome", "—")
+    price = store_data.get("entry_price", 0)
+    return SHOW, question, outcome, fmt_price(price), None
+
+
+@app.callback(
+    Output("buy-more-dummy", "children"),
+    Input("buy-more-confirm-btn", "n_clicks"),
+    State("buy-more-store", "data"),
+    State("buy-more-amount", "value"),
+    prevent_initial_call=True,
+)
+def execute_buy_more(_n, store_data, amount):
+    if not store_data or not amount or amount < 1:
+        raise dash.exceptions.PreventUpdate
+    trade = {
+        "market_id": store_data["market_id"],
+        "question": store_data["question"],
+        "category": store_data.get("category", "other"),
+        "outcome": store_data["outcome"],
+        "side": "BUY",
+        "size_usd": float(amount),
+        "entry_price": store_data["entry_price"],
+        "current_price": store_data["entry_price"],
+        "pnl": 0.0,
+        "status": "FILLED",
+        "mode": store_data["mode"],
+        "gemini_probability": store_data.get("gemini_probability"),
+        "gemini_reasoning": None,
+        "edge": store_data.get("edge"),
+        "closes_at": store_data.get("closes_at", ""),
+    }
+    database.insert_trade(config.DB_PATH, trade)
+    return ""
+
+
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=8050)
