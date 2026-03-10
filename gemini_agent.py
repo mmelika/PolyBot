@@ -24,6 +24,24 @@ ALWAYS respond with valid JSON in this exact format:
 
 Do not include any text outside the JSON."""
 
+SYSTEM_PROMPT_RESEARCH = """You are a rigorous fact-gatherer for prediction market research. Your ONLY job is to find and report current, factual information. Do NOT assign any probability or make a recommendation.
+
+You are researching with $1,000 of irreplaceable money at stake. Be thorough and honest. Actively look for information that CONTRADICTS the initial lean — find the strongest counterargument.
+
+Search for:
+- Current standings, polls, prices, statistics directly relevant to the question
+- Recent news that could change the outcome
+- Historical base rates for similar situations (how often has this type of outcome occurred?)
+- Specific factors that make this uncertain or hard to predict
+
+ALWAYS respond with valid JSON only, no other text:
+{
+  "key_facts": ["<specific fact>", "..."],
+  "base_rate": "<historical base rate statement with approximate percentage if known>",
+  "recent_developments": "<most relevant recent news in 1-2 sentences>",
+  "uncertainty_factors": ["<factor making outcome uncertain>", "..."]
+}"""
+
 SYSTEM_PROMPT_SCREEN = """You are a highly selective prediction market analyst. You have only $1,000 to your name — this money is irreplaceable and every single bet matters enormously.
 
 You will be shown a list of active prediction markets. Flag only markets where you have genuine informational edge — where you know enough to estimate probability meaningfully better than the current market price.
@@ -100,6 +118,24 @@ def parse_screen_response(raw: str) -> list:
         return []
 
 
+def parse_research_response(raw: str) -> Optional[dict]:
+    raw = re.sub(r"```(?:json)?\s*", "", raw).strip()
+    raw = re.sub(r"```\s*$", "", raw).strip()
+    try:
+        data = json.loads(raw)
+        required = ("key_facts", "base_rate", "recent_developments", "uncertainty_factors")
+        if not all(k in data for k in required):
+            return None
+        return {
+            "key_facts": list(data["key_facts"]),
+            "base_rate": str(data["base_rate"]),
+            "recent_developments": str(data["recent_developments"]),
+            "uncertainty_factors": list(data["uncertainty_factors"]),
+        }
+    except (json.JSONDecodeError, ValueError, KeyError):
+        return None
+
+
 def calculate_position_size(
     probability: float,
     entry_price: float,
@@ -156,6 +192,38 @@ def screen_markets(markets: list, open_market_ids: set) -> list:
     flagged = parse_screen_response(raw_text)
     # Remove any market already held as an open position
     return [f for f in flagged if f["market_id"] not in open_market_ids]
+
+
+def research_market(market: dict) -> Optional[dict]:
+    if not GENAI_AVAILABLE:
+        raise RuntimeError("google-generativeai not installed")
+
+    prompt = (
+        f"Market: {market['question']}\n"
+        f"Current YES price: {market['yes_price']:.4f} (implied: {market['yes_price']:.1%})\n"
+        f"Current NO price: {market['no_price']:.4f}\n"
+        f"Category: {market.get('category', 'other')}\n"
+        f"Closes: {market['end_date_iso'][:10]}\n\n"
+        f"Research this market thoroughly. Find current facts, base rates, and counterarguments."
+    )
+
+    try:
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT_RESEARCH,
+                temperature=0.3,
+                tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
+            ),
+        )
+        raw_text = response.text
+    except Exception as e:
+        print(f"[gemini_agent] Research API error: {e}")
+        return None
+
+    return parse_research_response(raw_text)
 
 
 def analyze_market(market: dict, performance: dict, use_web_search: bool = True) -> Optional[dict]:

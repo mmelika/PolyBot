@@ -128,3 +128,64 @@ def test_screen_markets_excludes_open_positions(monkeypatch):
 
     # m1 is already open — must be filtered out even if Gemini flagged it
     assert all(f["market_id"] != "m1" for f in result)
+
+
+import json as _json
+
+
+def test_parse_research_response_valid():
+    raw = _json.dumps({
+        "key_facts": ["Forest are 17th", "3 teams on 28pts"],
+        "base_rate": "Teams in 17th at this stage relegated ~45% historically",
+        "recent_developments": "Lost last 3 games, striker injured",
+        "uncertainty_factors": ["3-way tie", "9 games left"]
+    })
+    result = ga.parse_research_response(raw)
+    assert result is not None
+    assert len(result["key_facts"]) == 2
+    assert "base_rate" in result
+
+
+def test_parse_research_response_missing_field_returns_none():
+    raw = _json.dumps({"key_facts": ["fact1"]})  # missing other required fields
+    result = ga.parse_research_response(raw)
+    assert result is None
+
+
+def test_parse_research_response_invalid_json_returns_none():
+    result = ga.parse_research_response("not json")
+    assert result is None
+
+
+def test_research_market_returns_brief(monkeypatch):
+    market = {
+        "market_id": "m1",
+        "question": "Will Nottingham Forest be relegated?",
+        "yes_price": 0.35,
+        "no_price": 0.65,
+        "volume": 20000,
+        "end_date_iso": "2026-05-20T00:00:00Z",
+        "category": "sports",
+    }
+    mock_response = MagicMock()
+    mock_response.text = _json.dumps({
+        "key_facts": ["Forest 17th, 1pt above drop zone"],
+        "base_rate": "~40% historically",
+        "recent_developments": "Lost 3 in a row",
+        "uncertainty_factors": ["3-way battle"]
+    })
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = mock_response
+
+    with patch("gemini_agent.genai") as mock_genai:
+        mock_genai.Client.return_value = mock_client
+        result = ga.research_market(market)
+
+    assert result is not None
+    assert "key_facts" in result
+    assert "base_rate" in result
+    # verify config (with search grounding tool) was passed
+    call_kwargs = mock_client.models.generate_content.call_args
+    gen_config = call_kwargs.kwargs.get("config")
+    assert gen_config is not None
