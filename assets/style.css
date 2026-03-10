@@ -353,3 +353,26 @@ tbody td.cell-primary { color: #ffffff; }
 /* ── Utility ─────────────────────────────────────────────────────── */
 .text-muted { color: #52525b; }
 .text-secondary { color: #a1a1aa; }
+
+/* ── Market name cell (expandable on hover) ──────────────────────── */
+.market-cell {
+  color: #ffffff;
+  font-size: 12px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+  transition: max-width 300ms ease, white-space 300ms ease;
+}
+
+.market-cell:hover {
+  max-width: 600px;
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+  background: rgba(167,139,250,0.06);
+  border-radius: 4px;
+  z-index: 10;
+  position: relative;
+}

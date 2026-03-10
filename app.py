@@ -26,7 +26,10 @@ app.layout = html.Div([
     dcc.Interval(id="interval", interval=5000, n_intervals=0),
     html.Div([
         html.Div([
-            html.Span("Polymarket AI Agent", className="topbar-title"),
+            html.Span([
+                "Polymarket ",
+                html.Span("AI Agent", style={"color": "#a78bfa"}),
+            ], className="topbar-title"),
             html.Span(id="status-pill", children="● RUNNING", className="status-running"),
         ], style={"display": "flex", "alignItems": "center"}),
         html.Div([
@@ -111,7 +114,7 @@ def render_open_positions(trades):
         prob = t.get("gemini_probability")
         prob_str = f"{prob:.0%}" if prob is not None else "—"
         rows.append(html.Tr([
-            html.Td(t["question"][:42], className="cell-primary", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#fff", "fontSize": "12px", "maxWidth": "260px", "overflow": "hidden", "textOverflow": "ellipsis"}),
+            html.Td(t["question"], className="market-cell", title=t["question"], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(fmt_currency(t["size_usd"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
@@ -141,7 +144,7 @@ def render_recent_trades(trades):
                 html.Div(date_str, style={"color": "#52525b", "fontSize": "10px"}),
                 html.Div(time_str, style={"color": "#a1a1aa", "fontSize": "12px"}),
             ], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
-            html.Td(t["question"][:32], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#ffffff", "fontSize": "12px", "maxWidth": "200px", "overflow": "hidden", "textOverflow": "ellipsis"}),
+            html.Td(t["question"], className="market-cell", title=t["question"], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["side"], className="pill-buy"), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
@@ -246,16 +249,16 @@ def render_portfolio_chart(snapshots):
 
 def render_perf_by_category(perf):
     if not perf:
-        return html.Div("No closed trades yet", style={"color": "#6b7280", "fontSize": "13px"})
+        return html.Div("No closed trades yet", className="empty-state")
     rows = []
     for cat, stats in perf.items():
         pnl = stats["total_pnl"]
         rows.append(html.Div([
-            html.Span(cat.capitalize(), style={"flex": "1", "color": "#e2e8f0", "fontSize": "13px"}),
-            html.Span(f"{stats['total']} trades", style={"color": "#6b7280", "fontSize": "12px", "marginRight": "16px"}),
-            html.Span(f"{stats['win_rate']*100:.0f}% WR", style={"color": "#60a5fa", "fontSize": "12px", "marginRight": "16px"}),
-            html.Span(pnl_sign(pnl), className=pnl_class(pnl), style={"fontSize": "12px"}),
-        ], style={"display": "flex", "alignItems": "center", "padding": "8px 0", "borderBottom": "1px solid #1f2937"}))
+            html.Span(cat.capitalize(), style={"flex": "1", "color": "#ffffff", "fontSize": "13px", "fontWeight": "500"}),
+            html.Span(f"{stats['total']} trades", style={"color": "#52525b", "fontSize": "11px", "marginRight": "16px"}),
+            html.Span(f"{stats['win_rate']*100:.0f}% WR", style={"color": "#a78bfa", "fontSize": "12px", "fontWeight": "600", "marginRight": "16px"}),
+            html.Span(pnl_sign(pnl), className=pnl_class(pnl), style={"fontSize": "12px", "fontFamily": "'Roboto Mono', monospace"}),
+        ], className="perf-row"))
     return html.Div(rows)
 
 
@@ -263,10 +266,10 @@ def render_gemini_reasoning(trades):
     for t in trades:
         if t.get("gemini_reasoning"):
             return html.Div([
-                html.Div(t["question"][:60], style={"color": "#f1f5f9", "fontWeight": "600", "fontSize": "13px", "marginBottom": "8px"}),
-                html.Div(t["gemini_reasoning"], style={"color": "#9ca3af", "fontSize": "12px", "lineHeight": "1.6"}),
+                html.Div(t["question"], className="reasoning-question"),
+                html.Div(t["gemini_reasoning"], className="reasoning-body"),
             ])
-    return html.Div("No analysis yet", style={"color": "#6b7280", "fontSize": "13px"})
+    return html.Div("No analysis yet", className="empty-state")
 
 
 @app.callback(
