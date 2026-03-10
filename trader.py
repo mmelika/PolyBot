@@ -20,25 +20,33 @@ def get_status() -> str:
     return _status
 
 
-def should_trade(analysis: dict, market: dict, settings: dict) -> bool:
+def get_skip_reason(analysis: dict, market: dict, settings: dict) -> Optional[str]:
+    """Return a human-readable skip reason, or None if the trade should proceed."""
     if analysis.get("confidence") == "low":
-        return False
-    if analysis.get("edge", 0) < settings["min_advantage"]:
-        return False
+        return "confidence: low"
+    edge = analysis.get("edge", 0)
+    if edge < settings["min_advantage"]:
+        return f"edge too small ({edge:.1%})"
     end_date_str = market.get("end_date_iso", "")
     if end_date_str:
         try:
             end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
             days_to_close = (end_date - datetime.now(timezone.utc)).total_seconds() / 86400
             if days_to_close > settings["long_term_days"]:
-                if analysis.get("probability", 0) < settings["long_term_min_prob"]:
-                    return False
+                prob = analysis.get("probability", 0)
+                threshold = settings["long_term_min_prob"]
+                if prob < threshold:
+                    return f"long-term: probability {prob:.0%} below {threshold:.0%} threshold"
         except (ValueError, AttributeError):
-            pass  # unparseable date — skip long-term check
+            pass
     if analysis.get("contested"):
-        if analysis.get("confidence") != "high" or analysis.get("edge", 0) < 0.15:
-            return False
-    return True
+        if analysis.get("confidence") != "high" or edge < 0.15:
+            return "contested: insufficient edge/confidence"
+    return None
+
+
+def should_trade(analysis: dict, market: dict, settings: dict) -> bool:
+    return get_skip_reason(analysis, market, settings) is None
 
 
 def is_market_already_open(db_path: str, market_id: str) -> bool:

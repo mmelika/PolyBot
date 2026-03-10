@@ -189,6 +189,50 @@ def test_scan_and_trade_three_phase_pipeline(mock_db):
     assert stored["key_facts"] == ["Chelsea top of league"]
 
 
+# --- get_skip_reason ---
+
+def test_get_skip_reason_low_confidence():
+    reason = trader.get_skip_reason(_analysis(0.9, edge=0.15, confidence="low"), _market(3), _settings())
+    assert reason == "confidence: low"
+
+
+def test_get_skip_reason_edge_too_small():
+    reason = trader.get_skip_reason(_analysis(0.9, edge=0.01), _market(3), _settings())
+    assert "edge too small" in reason
+    assert "1.0%" in reason
+
+
+def test_get_skip_reason_long_term_low_prob():
+    reason = trader.get_skip_reason(_analysis(0.60, edge=0.15), _market(10), _settings())
+    assert "long-term" in reason
+
+
+def test_get_skip_reason_contested():
+    analysis = _analysis_with_contested(contested=True, confidence="medium", edge=0.12)
+    reason = trader.get_skip_reason(analysis, _market(3), _settings())
+    assert "contested" in reason
+
+
+def test_get_skip_reason_none_when_should_trade():
+    reason = trader.get_skip_reason(_analysis(0.85, edge=0.15), _market(3), _settings())
+    assert reason is None
+
+
+def test_should_trade_delegates_to_get_skip_reason():
+    """should_trade() must agree with get_skip_reason() on all cases."""
+    cases = [
+        (_analysis(0.9, edge=0.15, confidence="low"), _market(3)),
+        (_analysis(0.9, edge=0.01), _market(3)),
+        (_analysis(0.60, edge=0.15), _market(10)),
+        (_analysis(0.85, edge=0.15), _market(3)),
+    ]
+    settings = _settings()
+    for analysis, market in cases:
+        skip_reason = trader.get_skip_reason(analysis, market, settings)
+        expected = skip_reason is None
+        assert trader.should_trade(analysis, market, settings) == expected
+
+
 def test_skip_already_open_market(mock_db):
     import database
     trade = {
