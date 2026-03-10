@@ -103,26 +103,29 @@ def _table(headers, rows):
 
 def render_open_positions(trades):
     if not trades:
-        return html.Div("No open positions", style={"color": "#6b7280", "fontSize": "13px", "padding": "12px 0"})
+        return html.Div("No open positions", className="empty-state")
     rows = []
     for t in trades:
         pnl = t.get("pnl", 0)
         outcome_cls = "pill-yes" if t["outcome"] == "YES" else "pill-no"
+        prob = t.get("gemini_probability")
+        prob_str = f"{prob:.0%}" if prob is not None else "—"
         rows.append(html.Tr([
-            html.Td(t["question"][:40], style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#e2e8f0"}),
-            html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937"}),
-            html.Td(fmt_currency(t["size_usd"]), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#9ca3af"}),
-            html.Td(fmt_price(t["entry_price"]), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#9ca3af"}),
-            html.Td(fmt_price(t["current_price"]), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#9ca3af"}),
-            html.Td(pnl_sign(pnl), className=pnl_class(pnl), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937"}),
-            html.Td((t.get("closes_at") or "")[:10], style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#6b7280"}),
+            html.Td(t["question"][:42], className="cell-primary", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#fff", "fontSize": "12px", "maxWidth": "260px", "overflow": "hidden", "textOverflow": "ellipsis"}),
+            html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(fmt_currency(t["size_usd"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
+            html.Td(fmt_price(t["entry_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
+            html.Td(fmt_price(t["current_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
+            html.Td(pnl_sign(pnl), className=pnl_class(pnl), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td((t.get("closes_at") or "")[:10], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#52525b", "fontSize": "11px"}),
         ]))
-    return _table(["MARKET", "OUTCOME", "SIZE", "ENTRY", "CURRENT", "P&L", "CLOSES"], rows)
+    return _table(["MARKET", "OUTCOME", "PROB", "SIZE", "ENTRY", "CURRENT", "P&L", "CLOSES"], rows)
 
 
 def render_recent_trades(trades):
     if not trades:
-        return html.Div("No trades yet", style={"color": "#6b7280", "fontSize": "13px", "padding": "12px 0"})
+        return html.Div("No trades yet", className="empty-state")
     rows = []
     for t in trades[:20]:
         created = t.get("created_at", "")
@@ -130,18 +133,24 @@ def render_recent_trades(trades):
         date_str = created[:10] if len(created) >= 10 else ""
         edge_pct = f"{t.get('edge', 0):.1%}" if t.get("edge") else "—"
         outcome_cls = "pill-yes" if t["outcome"] == "YES" else "pill-no"
+        prob = t.get("gemini_probability")
+        prob_str = f"{prob:.0%}" if prob is not None else "—"
+        status_cls = "pill-pending" if t.get("status") == "PENDING" else "pill-filled"
         rows.append(html.Tr([
-            html.Td([html.Div(date_str, style={"color": "#6b7280", "fontSize": "10px"}), html.Div(time_str)],
-                    style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#e2e8f0", "fontSize": "12px"}),
-            html.Td(t["question"][:30], style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#e2e8f0"}),
-            html.Td(html.Span(t["side"], className="pill-buy"), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937"}),
-            html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937"}),
-            html.Td(fmt_currency(t["size_usd"]), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#9ca3af"}),
-            html.Td(fmt_price(t["entry_price"]), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#9ca3af"}),
-            html.Td(edge_pct, style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937", "color": "#fbbf24"}),
-            html.Td(html.Span(t["status"], className="pill-filled"), style={"padding": "7px 8px", "borderBottom": "1px solid #1f2937"}),
+            html.Td([
+                html.Div(date_str, style={"color": "#52525b", "fontSize": "10px"}),
+                html.Div(time_str, style={"color": "#a1a1aa", "fontSize": "12px"}),
+            ], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(t["question"][:32], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#ffffff", "fontSize": "12px", "maxWidth": "200px", "overflow": "hidden", "textOverflow": "ellipsis"}),
+            html.Td(html.Span(t["side"], className="pill-buy"), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(fmt_currency(t["size_usd"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
+            html.Td(fmt_price(t["entry_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
+            html.Td(edge_pct, className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a78bfa"}),
+            html.Td(html.Span(t["status"], className=status_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
         ]))
-    return _table(["TIME", "MARKET", "SIDE", "OUTCOME", "SIZE", "PRICE", "EDGE", "STATUS"], rows)
+    return _table(["TIME", "MARKET", "SIDE", "OUTCOME", "PROB", "SIZE", "PRICE", "EDGE", "STATUS"], rows)
 
 
 def render_portfolio_chart(snapshots):
