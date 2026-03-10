@@ -92,6 +92,15 @@ def fmt_price(v): return f"{v:.4f}"
 def pnl_class(v): return "pnl-positive" if v >= 0 else "pnl-negative"
 def pnl_sign(v): return f"+${v:.2f}" if v >= 0 else f"-${abs(v):.2f}"
 
+def prob_color(prob):
+    if prob is None:
+        return "#52525b"
+    if prob >= 0.70:
+        return "#22c55e"
+    if prob >= 0.40:
+        return "#fbbf24"
+    return "#ef4444"
+
 
 def _table(headers, rows):
     return html.Table(
@@ -119,7 +128,7 @@ def render_open_positions(trades):
         rows.append(html.Tr([
             html.Td(t["question"], className="market-cell", title=t["question"], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
-            html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": prob_color(t.get("gemini_probability"))}),
             html.Td(fmt_currency(t["size_usd"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(fmt_price(t["entry_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(fmt_price(t["current_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
@@ -150,7 +159,7 @@ def render_recent_trades(trades):
             html.Td(t["question"], className="market-cell", title=t["question"], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["side"], className="pill-buy"), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
-            html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
+            html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": prob_color(t.get("gemini_probability"))}),
             html.Td(fmt_currency(t["size_usd"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(fmt_price(t["entry_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(edge_pct, className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a78bfa"}),
