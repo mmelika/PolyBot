@@ -47,6 +47,23 @@ def init_db(db_path: str) -> None:
             updated_at TEXT DEFAULT (datetime('now'))
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS skipped_markets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            market_id   TEXT NOT NULL,
+            question    TEXT NOT NULL,
+            category    TEXT DEFAULT 'other',
+            side        TEXT NOT NULL,
+            probability REAL,
+            edge        REAL,
+            confidence  TEXT,
+            contested   INTEGER DEFAULT 0,
+            skip_reason TEXT NOT NULL,
+            reasoning   TEXT,
+            mode        TEXT DEFAULT 'paper',
+            created_at  TEXT DEFAULT (datetime('now'))
+        )
+    """)
     try:
         conn.execute("ALTER TABLE trades ADD COLUMN research_brief TEXT")
         conn.commit()
@@ -75,6 +92,33 @@ def insert_trade(db_path: str, trade: dict) -> int:
     conn.commit()
     conn.close()
     return trade_id
+
+
+def insert_skipped_market(db_path: str, record: dict) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        INSERT INTO skipped_markets
+            (market_id, question, category, side, probability, edge, confidence,
+             contested, skip_reason, reasoning, mode)
+        VALUES
+            (:market_id, :question, :category, :side, :probability, :edge, :confidence,
+             :contested, :skip_reason, :reasoning, :mode)
+    """, {**record, "contested": int(record.get("contested") or 0)})
+    conn.commit()
+    conn.close()
+
+
+def get_skipped_markets(db_path: str, limit: int = 20, mode: str = "paper") -> list:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute(
+        """SELECT * FROM skipped_markets WHERE mode = ?
+           ORDER BY edge DESC, created_at DESC LIMIT ?""",
+        (mode, limit)
+    )
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
 
 
 def update_trade_price(db_path: str, trade_id: int, current_price: float, pnl: float) -> None:

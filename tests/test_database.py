@@ -298,3 +298,73 @@ def test_get_daily_stats_filters_by_mode(db):
     real_stats = database.get_daily_stats(db, "real")
     assert paper_stats["daily_trades"] == 1
     assert real_stats["daily_trades"] == 1
+
+
+def test_init_creates_skipped_markets_table(db):
+    import sqlite3
+    conn = sqlite3.connect(db)
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    tables = {row[0] for row in cursor.fetchall()}
+    conn.close()
+    assert "skipped_markets" in tables
+
+
+def test_insert_and_get_skipped_market(db):
+    record = {
+        "market_id": "mkt_skip_001",
+        "question": "Will X happen?",
+        "category": "crypto",
+        "side": "YES",
+        "probability": 0.65,
+        "edge": 0.05,
+        "confidence": "medium",
+        "contested": False,
+        "skip_reason": "edge too small (5.0%)",
+        "reasoning": "Some reasoning here",
+        "mode": "paper",
+    }
+    database.insert_skipped_market(db, record)
+    rows = database.get_skipped_markets(db, limit=10, mode="paper")
+    assert len(rows) == 1
+    assert rows[0]["market_id"] == "mkt_skip_001"
+    assert rows[0]["skip_reason"] == "edge too small (5.0%)"
+
+
+def test_get_skipped_markets_sorted_by_edge_desc(db):
+    for edge in [0.05, 0.12, 0.03]:
+        database.insert_skipped_market(db, {
+            "market_id": f"mkt_{edge}",
+            "question": f"Market edge={edge}",
+            "category": "other",
+            "side": "YES",
+            "probability": 0.6,
+            "edge": edge,
+            "confidence": "medium",
+            "contested": False,
+            "skip_reason": "edge too small",
+            "reasoning": "",
+            "mode": "paper",
+        })
+    rows = database.get_skipped_markets(db, limit=10, mode="paper")
+    edges = [r["edge"] for r in rows]
+    assert edges == sorted(edges, reverse=True)
+
+
+def test_get_skipped_markets_filters_by_mode(db):
+    for mode in ["paper", "real"]:
+        database.insert_skipped_market(db, {
+            "market_id": f"mkt_{mode}",
+            "question": "Q",
+            "category": "other",
+            "side": "YES",
+            "probability": 0.6,
+            "edge": 0.05,
+            "confidence": "medium",
+            "contested": False,
+            "skip_reason": "low confidence",
+            "reasoning": "",
+            "mode": mode,
+        })
+    paper_rows = database.get_skipped_markets(db, limit=10, mode="paper")
+    assert all(r["mode"] == "paper" for r in paper_rows)
+    assert len(paper_rows) == 1
