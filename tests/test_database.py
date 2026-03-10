@@ -134,3 +134,15 @@ def test_get_recent_trades(db):
         database.insert_trade(db, trade)
     recent = database.get_recent_trades(db, limit=3)
     assert len(recent) == 3
+
+
+def test_research_brief_column_exists(tmp_path):
+    import database
+    db_path = str(tmp_path / "test.db")
+    database.init_db(db_path)
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    cursor = conn.execute("PRAGMA table_info(trades)")
+    cols = [row[1] for row in cursor.fetchall()]
+    conn.close()
+    assert "research_brief" in cols

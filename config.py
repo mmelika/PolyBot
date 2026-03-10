@@ -20,6 +20,7 @@ TRADING_MODE = os.getenv("TRADING_MODE", "paper")  # "paper" or "real"
 MIN_MARKET_VOLUME = 1000  # USD
 MIN_HOURS_TO_CLOSE = 24
 MAX_MARKETS_TO_SCAN = 50
+MAX_FLAGGED_MARKETS = 10        # max markets to deep-research per scan cycle
 DB_PATH = "data/polybot.db"
 
 LONG_TERM_DAYS = 7          # markets closing beyond this require high probability

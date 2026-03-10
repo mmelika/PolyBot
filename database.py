@@ -47,6 +47,11 @@ def init_db(db_path: str) -> None:
             updated_at TEXT DEFAULT (datetime('now'))
         )
     """)
+    try:
+        conn.execute("ALTER TABLE trades ADD COLUMN research_brief TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
     conn.close()
 
