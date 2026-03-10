@@ -31,6 +31,8 @@ def fmt_pct(v): return f"{v:+.2f}%"
 def fmt_price(v): return f"{v:.4f}"
 def pnl_class(v): return "pnl-positive" if v >= 0 else "pnl-negative"
 def pnl_sign(v): return f"+${v:.2f}" if v >= 0 else f"-${abs(v):.2f}"
+def max_profit(size_usd, entry_price):
+    return size_usd * (1 - entry_price) / entry_price
 
 
 def _settings_field(input_id, label, description, placeholder):
@@ -467,21 +469,28 @@ def handle_settings_modal(
         return SHOW
 
     if ctx.triggered_id == "modal-save-btn":
-        try:
-            settings = {
-                "paper_starting_capital": float(paper_cap),
-                "real_starting_capital": float(real_cap),
-                "min_advantage": float(min_adv) / 100.0,
-                "max_position_size": float(max_pos),
-                "max_deployed_pct": float(max_dep) / 100.0,
-                "scan_interval_minutes": int(float(scan_int)),
-                "min_market_volume": float(min_vol),
-                "long_term_days": int(float(lt_days)),
-                "long_term_min_prob": float(lt_prob) / 100.0,
-            }
+        raw = {
+            "paper_starting_capital": (float(paper_cap) if paper_cap is not None else None),
+            "real_starting_capital": (float(real_cap) if real_cap is not None else None),
+            "min_advantage": (float(min_adv) / 100.0 if min_adv is not None else None),
+            "max_position_size": (float(max_pos) if max_pos is not None else None),
+            "max_deployed_pct": (float(max_dep) / 100.0 if max_dep is not None else None),
+            "scan_interval_minutes": (int(float(scan_int)) if scan_int is not None else None),
+            "min_market_volume": (float(min_vol) if min_vol is not None else None),
+            "long_term_days": (int(float(lt_days)) if lt_days is not None else None),
+            "long_term_min_prob": (float(lt_prob) / 100.0 if lt_prob is not None else None),
+        }
+        settings = {k: v for k, v in raw.items() if v is not None}
+        if settings:
+            old = database.get_settings(config.DB_PATH)
             database.save_settings(config.DB_PATH, settings)
-        except (TypeError, ValueError):
-            pass
+            # Apply new paper capital immediately if no open positions
+            mode = database.get_app_state(config.DB_PATH, "trading_mode", "paper")
+            if mode == "paper" and "paper_starting_capital" in settings:
+                new_cap = settings["paper_starting_capital"]
+                if new_cap != old["paper_starting_capital"]:
+                    if not database.get_open_trades(config.DB_PATH, "paper"):
+                        database.reset_paper_trading(config.DB_PATH, new_cap)
         return HIDE
 
     return HIDE
