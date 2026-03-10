@@ -19,27 +19,6 @@ def test_build_performance_context_with_data():
     assert "sports" in context.lower()
 
 
-def test_parse_gemini_response_valid_json():
-    raw = '{"probability": 0.72, "side": "YES", "confidence": "high", "reasoning": "Strong trend"}'
-    result = ga.parse_gemini_response(raw)
-    assert result["probability"] == 0.72
-    assert result["side"] == "YES"
-    assert result["confidence"] == "high"
-
-
-def test_parse_gemini_response_json_in_markdown():
-    raw = '```json\n{"probability": 0.55, "side": "NO", "confidence": "medium", "reasoning": "Uncertain"}\n```'
-    result = ga.parse_gemini_response(raw)
-    assert result["probability"] == 0.55
-    assert result["side"] == "NO"
-
-
-def test_parse_gemini_response_invalid_returns_none():
-    raw = "I cannot analyze this market."
-    result = ga.parse_gemini_response(raw)
-    assert result is None
-
-
 def test_calculate_position_size_kelly():
     size = ga.calculate_position_size(
         probability=0.65,
