@@ -104,7 +104,7 @@ app.layout = html.Div([
                 ]),
                 html.Div(className="section-card", children=[
                     html.Div(className="section-header", children=[
-                        html.Span("Latest Gemini Analysis", className="section-title"),
+                        html.Span("Latest Verification", className="section-title"),
                     ]),
                     html.Div(id="gemini-reasoning"),
                 ]),
@@ -142,28 +142,29 @@ app.layout = html.Div([
                     ]),
                     html.Div("RISK MANAGEMENT", className="modal-section-label"),
                     html.Div(className="modal-row", children=[
-                        _settings_field("input-min-advantage", "Minimum Advantage (%)",
-                            "Only trade when the AI sees at least this % better odds than the market price. Higher = fewer, more selective trades.", 8),
+                        _settings_field("input-min-discount", "Minimum Discount (%)",
+                            "Only buy when the best ask is discounted enough versus the $1 payout at expiry.", 2),
                         _settings_field("input-max-position", "Max Position Size ($)",
                             "The largest single trade in dollars.", 20),
                     ]),
                     html.Div(className="modal-row", children=[
                         _settings_field("input-max-deployed", "Max Deployed (%)",
                             "Never put more than this % of your balance into open trades at once.", 80),
-                        _settings_field("input-scan-interval", "Scan Interval (minutes)",
-                            "How often the bot scans for new opportunities.", 10),
+                        _settings_field("input-stop-loss", "Stop Loss (%)",
+                            "Auto-exit a position if its token price falls this far below entry.", 20),
                     ]),
                     html.Div("MARKET FILTERS", className="modal-section-label"),
                     html.Div(className="modal-row", children=[
                         _settings_field("input-min-volume", "Min Market Volume ($)",
                             "Skip markets with less than this amount in total trading volume. Thin markets are less reliable.", 1000),
-                        _settings_field("input-long-term-days", "Long-term Cutoff (days)",
-                            "Treat a market as long-term if it closes more than this many days from now.", 7),
+                        _settings_field("input-max-expiry-days", "Max Expiry (days)",
+                            "Only scan markets closing within this many days.", 3),
                     ]),
                     html.Div(className="modal-row", children=[
-                        _settings_field("input-long-term-prob", "Long-term Min Probability (%)",
-                            "For long-term markets, only trade if the AI gives at least this % probability.", 80),
-                        html.Div(style={"flex": "1"}),
+                        _settings_field("input-max-position-pct", "Max Event Exposure (%)",
+                            "Maximum share of portfolio committed to one event slug.", 20),
+                        _settings_field("input-scan-interval", "Scan Interval (minutes)",
+                            "How often the bot scans for new opportunities.", 10),
                     ]),
                 ]),
                 html.Div(className="modal-footer", children=[
@@ -249,16 +250,19 @@ def render_open_positions(trades):
     for t in trades:
         pnl = t.get("pnl", 0)
         outcome_cls = "pill-yes" if t["outcome"] == "YES" else "pill-no"
-        prob = t.get("gemini_probability")
-        prob_str = f"{prob:.0%}" if prob is not None else "—"
+        confidence = t.get("gemini_probability")
+        confidence_str = f"{confidence:.0%}" if confidence is not None else "—"
         mp = max_profit(t["size_usd"], t["entry_price"])
+        stop_loss = t.get("stop_loss_price")
+        stop_loss_str = fmt_price(stop_loss) if stop_loss is not None else "—"
         rows.append(html.Tr([
             html.Td(t["question"], className="market-cell", title=t["question"], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(html.Span(t["outcome"], className=outcome_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
-            html.Td(prob_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": prob_color(t.get("gemini_probability"))}),
+            html.Td(confidence_str, className="prob-value", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": prob_color(t.get("gemini_probability"))}),
             html.Td(fmt_currency(t["size_usd"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(fmt_price(t["entry_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(fmt_price(t["current_price"]), className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
+            html.Td(stop_loss_str, className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a1a1aa"}),
             html.Td(pnl_sign(pnl), className=pnl_class(pnl), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td(pnl_sign(mp), className="pnl-positive", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
             html.Td((t.get("closes_at") or "")[:10], style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#52525b", "fontSize": "11px"}),
@@ -268,7 +272,7 @@ def render_open_positions(trades):
                 style={"padding": "6px 8px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "textAlign": "center"},
             ),
         ]))
-    return _table(["MARKET", "OUTCOME", "PROB", "SIZE", "ENTRY", "CURRENT", "P&L", "MAX PROFIT", "CLOSES", ""], rows)
+    return _table(["MARKET", "OUTCOME", "CONF", "SIZE", "ENTRY", "CURRENT", "STOP LOSS", "P&L", "MAX PROFIT", "CLOSES", ""], rows)
 
 
 def render_recent_trades(trades):
@@ -279,7 +283,7 @@ def render_recent_trades(trades):
         created = t.get("created_at", "")
         time_str = created[11:16] if len(created) >= 16 else created[:10]
         date_str = created[:10] if len(created) >= 10 else ""
-        edge_pct = f"{t.get('edge', 0):.1%}" if t.get("edge") else "—"
+        edge_pct = f"{t.get('edge', 0):.1%}" if t.get("edge") is not None else "—"
         outcome_cls = "pill-yes" if t["outcome"] == "YES" else "pill-no"
         prob = t.get("gemini_probability")
         prob_str = f"{prob:.0%}" if prob is not None else "—"
@@ -298,7 +302,7 @@ def render_recent_trades(trades):
             html.Td(edge_pct, className="mono", style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)", "color": "#a78bfa"}),
             html.Td(html.Span(t["status"], className=status_cls), style={"padding": "9px 10px", "borderBottom": "1px solid rgba(255,255,255,0.03)"}),
         ]))
-    return _table(["TIME", "MARKET", "SIDE", "OUTCOME", "PROB", "SIZE", "PRICE", "ADVANTAGE", "STATUS"], rows)
+    return _table(["TIME", "MARKET", "SIDE", "OUTCOME", "CONF", "SIZE", "PRICE", "DISCOUNT", "STATUS"], rows)
 
 
 def render_portfolio_chart(snapshots, baseline):
@@ -467,13 +471,14 @@ def reset_paper(_n_clicks):
 @app.callback(
     Output("input-paper-capital", "value"),
     Output("input-real-capital", "value"),
-    Output("input-min-advantage", "value"),
+    Output("input-min-discount", "value"),
     Output("input-max-position", "value"),
     Output("input-max-deployed", "value"),
-    Output("input-scan-interval", "value"),
+    Output("input-stop-loss", "value"),
     Output("input-min-volume", "value"),
-    Output("input-long-term-days", "value"),
-    Output("input-long-term-prob", "value"),
+    Output("input-max-expiry-days", "value"),
+    Output("input-max-position-pct", "value"),
+    Output("input-scan-interval", "value"),
     Input("settings-gear-btn", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -482,13 +487,14 @@ def populate_settings_form(_n):
     return (
         s["paper_starting_capital"],
         s["real_starting_capital"],
-        round(s["min_advantage"] * 100, 1),
+        round(s["min_discount"] * 100, 1),
         s["max_position_size"],
         round(s["max_deployed_pct"] * 100, 0),
-        s["scan_interval_minutes"],
+        round(s["stop_loss_pct"] * 100, 0),
         s["min_market_volume"],
-        s["long_term_days"],
-        round(s["long_term_min_prob"] * 100, 0),
+        s["max_expiry_days"],
+        round(s["max_position_pct"] * 100, 0),
+        s["scan_interval_minutes"],
     )
 
 
@@ -500,19 +506,20 @@ def populate_settings_form(_n):
     Input("modal-save-btn", "n_clicks"),
     State("input-paper-capital", "value"),
     State("input-real-capital", "value"),
-    State("input-min-advantage", "value"),
+    State("input-min-discount", "value"),
     State("input-max-position", "value"),
     State("input-max-deployed", "value"),
-    State("input-scan-interval", "value"),
+    State("input-stop-loss", "value"),
     State("input-min-volume", "value"),
-    State("input-long-term-days", "value"),
-    State("input-long-term-prob", "value"),
+    State("input-max-expiry-days", "value"),
+    State("input-max-position-pct", "value"),
+    State("input-scan-interval", "value"),
     prevent_initial_call=True,
 )
 def handle_settings_modal(
     _gear, _close, _cancel, _save,
-    paper_cap, real_cap, min_adv, max_pos,
-    max_dep, scan_int, min_vol, lt_days, lt_prob,
+    paper_cap, real_cap, min_discount, max_pos,
+    max_dep, stop_loss, min_vol, max_expiry_days, max_position_pct, scan_int,
 ):
     SHOW = {"display": "flex"}
     HIDE = {"display": "none"}
@@ -524,13 +531,14 @@ def handle_settings_modal(
         raw = {
             "paper_starting_capital": (float(paper_cap) if paper_cap is not None else None),
             "real_starting_capital": (float(real_cap) if real_cap is not None else None),
-            "min_advantage": (float(min_adv) / 100.0 if min_adv is not None else None),
+            "min_discount": (float(min_discount) / 100.0 if min_discount is not None else None),
             "max_position_size": (float(max_pos) if max_pos is not None else None),
             "max_deployed_pct": (float(max_dep) / 100.0 if max_dep is not None else None),
+            "stop_loss_pct": (float(stop_loss) / 100.0 if stop_loss is not None else None),
             "scan_interval_minutes": (int(float(scan_int)) if scan_int is not None else None),
             "min_market_volume": (float(min_vol) if min_vol is not None else None),
-            "long_term_days": (int(float(lt_days)) if lt_days is not None else None),
-            "long_term_min_prob": (float(lt_prob) / 100.0 if lt_prob is not None else None),
+            "max_expiry_days": (int(float(max_expiry_days)) if max_expiry_days is not None else None),
+            "max_position_pct": (float(max_position_pct) / 100.0 if max_position_pct is not None else None),
         }
         settings = {k: v for k, v in raw.items() if v is not None}
         if settings:
@@ -645,6 +653,10 @@ def open_buy_more(n_clicks_list):
         "edge": trade.get("edge"),
         "closes_at": trade.get("closes_at"),
         "category": trade.get("category", "other"),
+        "stop_loss_price": trade.get("stop_loss_price"),
+        "strategy": trade.get("strategy", "expiry_convergence"),
+        "token_id": trade.get("token_id"),
+        "event_slug": trade.get("event_slug"),
     }
 
 
@@ -700,6 +712,10 @@ def execute_buy_more(_n, store_data, amount):
         "gemini_reasoning": None,
         "edge": store_data.get("edge"),
         "closes_at": store_data.get("closes_at", ""),
+        "stop_loss_price": store_data.get("stop_loss_price"),
+        "strategy": store_data.get("strategy", "expiry_convergence"),
+        "token_id": store_data.get("token_id"),
+        "event_slug": store_data.get("event_slug"),
     }
     database.insert_trade(config.DB_PATH, trade)
     return ""

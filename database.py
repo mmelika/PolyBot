@@ -1,14 +1,23 @@
+import os
 import sqlite3
-from datetime import datetime
 from typing import Optional
 
 
+TRADE_EXTRA_COLUMNS = {
+    "research_brief": "TEXT",
+    "stop_loss_price": "REAL",
+    "strategy": "TEXT DEFAULT 'expiry_convergence'",
+    "token_id": "TEXT",
+    "event_slug": "TEXT",
+    "redeemed_at": "TEXT",
+}
+
+
 def init_db(db_path: str) -> None:
-    """Create tables if they don't exist."""
-    import os
     os.makedirs(os.path.dirname(db_path) if os.path.dirname(db_path) else ".", exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             market_id TEXT NOT NULL,
@@ -30,8 +39,10 @@ def init_db(db_path: str) -> None:
             resolved_at TEXT,
             resolution TEXT
         )
-    """)
-    conn.execute("""
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS portfolio_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT DEFAULT (datetime('now')),
@@ -39,55 +50,80 @@ def init_db(db_path: str) -> None:
             cash_balance REAL NOT NULL,
             mode TEXT DEFAULT 'paper'
         )
-    """)
-    conn.execute("""
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS app_state (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT DEFAULT (datetime('now'))
         )
-    """)
-    conn.execute("""
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS skipped_markets (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            market_id   TEXT NOT NULL,
-            question    TEXT NOT NULL,
-            category    TEXT DEFAULT 'other',
-            side        TEXT NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            market_id TEXT NOT NULL,
+            question TEXT NOT NULL,
+            category TEXT DEFAULT 'other',
+            side TEXT NOT NULL,
             probability REAL,
-            edge        REAL,
-            confidence  TEXT,
-            contested   INTEGER DEFAULT 0,
+            edge REAL,
+            confidence TEXT,
+            contested INTEGER DEFAULT 0,
             skip_reason TEXT NOT NULL,
-            reasoning   TEXT,
-            mode        TEXT DEFAULT 'paper',
-            created_at  TEXT DEFAULT (datetime('now'))
+            reasoning TEXT,
+            mode TEXT DEFAULT 'paper',
+            created_at TEXT DEFAULT (datetime('now'))
         )
-    """)
-    try:
-        conn.execute("ALTER TABLE trades ADD COLUMN research_brief TEXT")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
+        """
+    )
+    for column_name, definition in TRADE_EXTRA_COLUMNS.items():
+        try:
+            conn.execute(f"ALTER TABLE trades ADD COLUMN {column_name} {definition}")
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     conn.close()
 
 
-def _row_to_dict(cursor, row) -> dict:
-    return {col[0]: val for col, val in zip(cursor.description, row)}
-
-
 def insert_trade(db_path: str, trade: dict) -> int:
+    row = {
+        "category": "other",
+        "pnl": 0.0,
+        "status": "FILLED",
+        "mode": "paper",
+        "gemini_probability": None,
+        "gemini_reasoning": None,
+        "edge": None,
+        "closes_at": "",
+        "research_brief": None,
+        "stop_loss_price": None,
+        "strategy": "expiry_convergence",
+        "token_id": None,
+        "event_slug": None,
+        **trade,
+    }
     conn = sqlite3.connect(db_path)
-    row = {"research_brief": None, **trade}
-    cursor = conn.execute("""
-        INSERT INTO trades (market_id, question, category, outcome, side, size_usd,
+    cursor = conn.execute(
+        """
+        INSERT INTO trades (
+            market_id, question, category, outcome, side, size_usd,
             entry_price, current_price, pnl, status, mode, gemini_probability,
-            gemini_reasoning, edge, closes_at, research_brief)
-        VALUES (:market_id, :question, :category, :outcome, :side, :size_usd,
+            gemini_reasoning, edge, closes_at, research_brief, stop_loss_price,
+            strategy, token_id, event_slug
+        )
+        VALUES (
+            :market_id, :question, :category, :outcome, :side, :size_usd,
             :entry_price, :current_price, :pnl, :status, :mode, :gemini_probability,
-            :gemini_reasoning, :edge, :closes_at, :research_brief)
-    """, row)
+            :gemini_reasoning, :edge, :closes_at, :research_brief, :stop_loss_price,
+            :strategy, :token_id, :event_slug
+        )
+        """,
+        row,
+    )
     trade_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -96,14 +132,17 @@ def insert_trade(db_path: str, trade: dict) -> int:
 
 def insert_skipped_market(db_path: str, record: dict) -> None:
     conn = sqlite3.connect(db_path)
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO skipped_markets
             (market_id, question, category, side, probability, edge, confidence,
              contested, skip_reason, reasoning, mode)
         VALUES
             (:market_id, :question, :category, :side, :probability, :edge, :confidence,
              :contested, :skip_reason, :reasoning, :mode)
-    """, {**record, "contested": int(record.get("contested") or 0)})
+        """,
+        {**record, "contested": int(record.get("contested") or 0)},
+    )
     conn.commit()
     conn.close()
 
@@ -111,21 +150,24 @@ def insert_skipped_market(db_path: str, record: dict) -> None:
 def get_skipped_markets(db_path: str, limit: int = 20, mode: str = "paper") -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute(
-        """SELECT * FROM skipped_markets WHERE mode = ?
-           ORDER BY edge DESC, created_at DESC LIMIT ?""",
-        (mode, limit)
-    )
-    rows = [dict(row) for row in cursor.fetchall()]
+    rows = conn.execute(
+        """
+        SELECT * FROM skipped_markets
+        WHERE mode = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (mode, limit),
+    ).fetchall()
     conn.close()
-    return rows
+    return [dict(row) for row in rows]
 
 
 def update_trade_price(db_path: str, trade_id: int, current_price: float, pnl: float) -> None:
     conn = sqlite3.connect(db_path)
     conn.execute(
         "UPDATE trades SET current_price = ?, pnl = ? WHERE id = ?",
-        (current_price, pnl, trade_id)
+        (current_price, pnl, trade_id),
     )
     conn.commit()
     conn.close()
@@ -133,12 +175,27 @@ def update_trade_price(db_path: str, trade_id: int, current_price: float, pnl: f
 
 def close_trade(db_path: str, trade_id: int, resolution: str, resolved_price: float) -> None:
     conn = sqlite3.connect(db_path)
-    conn.execute("""
+    conn.execute(
+        """
         UPDATE trades
-        SET status = 'CLOSED', resolution = ?, resolved_at = datetime('now'),
+        SET status = 'CLOSED',
+            resolution = ?,
+            resolved_at = datetime('now'),
             current_price = ?
         WHERE id = ?
-    """, (resolution, resolved_price, trade_id))
+        """,
+        (resolution, resolved_price, trade_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def mark_trade_redeemed(db_path: str, trade_id: int) -> None:
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE trades SET redeemed_at = datetime('now') WHERE id = ?",
+        (trade_id,),
+    )
     conn.commit()
     conn.close()
 
@@ -146,31 +203,79 @@ def close_trade(db_path: str, trade_id: int, resolution: str, resolved_price: fl
 def get_open_trades(db_path: str, mode: str = "paper") -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute(
-        "SELECT * FROM trades WHERE status IN ('FILLED', 'PENDING') AND mode = ? ORDER BY created_at DESC",
-        (mode,)
-    )
-    rows = [dict(row) for row in cursor.fetchall()]
+    rows = conn.execute(
+        """
+        SELECT * FROM trades
+        WHERE status IN ('FILLED', 'PENDING') AND mode = ?
+        ORDER BY created_at DESC
+        """,
+        (mode,),
+    ).fetchall()
     conn.close()
-    return rows
+    return [dict(row) for row in rows]
 
 
 def get_recent_trades(db_path: str, limit: int = 20, mode: str = "paper") -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute(
-        "SELECT * FROM trades WHERE mode = ? ORDER BY created_at DESC LIMIT ?", (mode, limit)
-    )
-    rows = [dict(row) for row in cursor.fetchall()]
+    rows = conn.execute(
+        "SELECT * FROM trades WHERE mode = ? ORDER BY created_at DESC LIMIT ?",
+        (mode, limit),
+    ).fetchall()
     conn.close()
-    return rows
+    return [dict(row) for row in rows]
+
+
+def get_trade_by_market_id(db_path: str, market_id: str) -> Optional[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        """
+        SELECT * FROM trades
+        WHERE market_id = ? AND status IN ('FILLED', 'PENDING')
+        LIMIT 1
+        """,
+        (market_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_trade_by_id(db_path: str, trade_id: int) -> Optional[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM trades WHERE id = ?",
+        (trade_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_settled_unredeemed_trades(db_path: str, mode: Optional[str] = None) -> list:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    query = """
+        SELECT * FROM trades
+        WHERE status = 'CLOSED'
+          AND resolution IN ('WIN', 'LOSS')
+          AND redeemed_at IS NULL
+    """
+    params = []
+    if mode is not None:
+        query += " AND mode = ?"
+        params.append(mode)
+    query += " ORDER BY resolved_at DESC"
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 
 def snapshot_portfolio(db_path: str, total_value: float, cash_balance: float, mode: str) -> None:
     conn = sqlite3.connect(db_path)
     conn.execute(
         "INSERT INTO portfolio_snapshots (total_value, cash_balance, mode) VALUES (?, ?, ?)",
-        (total_value, cash_balance, mode)
+        (total_value, cash_balance, mode),
     )
     conn.commit()
     conn.close()
@@ -179,136 +284,156 @@ def snapshot_portfolio(db_path: str, total_value: float, cash_balance: float, mo
 def get_portfolio_snapshots(db_path: str, limit: int = 200, mode: str = "paper") -> list:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute(
-        "SELECT * FROM portfolio_snapshots WHERE mode = ? ORDER BY timestamp DESC LIMIT ?",
-        (mode, limit)
-    )
-    rows = [dict(row) for row in cursor.fetchall()]
+    rows = conn.execute(
+        """
+        SELECT * FROM portfolio_snapshots
+        WHERE mode = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        """,
+        (mode, limit),
+    ).fetchall()
     conn.close()
-    return list(reversed(rows))
+    return list(reversed([dict(row) for row in rows]))
 
 
 def get_performance_by_category(db_path: str, mode: str = "paper") -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute("""
-        SELECT category,
-               COUNT(*) as total,
-               SUM(CASE WHEN resolution = 'WIN' THEN 1 ELSE 0 END) as wins,
-               SUM(pnl) as total_pnl,
-               AVG(edge) as avg_edge
+    rows = conn.execute(
+        """
+        SELECT
+            category,
+            COUNT(*) AS total,
+            SUM(CASE WHEN resolution = 'WIN' THEN 1 ELSE 0 END) AS wins,
+            SUM(pnl) AS total_pnl,
+            AVG(edge) AS avg_edge
         FROM trades
         WHERE status = 'CLOSED' AND resolution IS NOT NULL AND mode = ?
         GROUP BY category
-    """, (mode,))
-    result = {}
-    for row in cursor.fetchall():
-        d = dict(row)
-        result[d["category"]] = {
-            "total": d["total"],
-            "wins": d["wins"],
-            "win_rate": d["wins"] / d["total"] if d["total"] > 0 else 0,
-            "total_pnl": d["total_pnl"] or 0,
-            "avg_edge": d["avg_edge"] or 0,
-        }
+        """,
+        (mode,),
+    ).fetchall()
     conn.close()
+    result = {}
+    for row in rows:
+        item = dict(row)
+        total = item["total"] or 0
+        wins = item["wins"] or 0
+        result[item["category"]] = {
+            "total": total,
+            "wins": wins,
+            "win_rate": wins / total if total else 0.0,
+            "total_pnl": item["total_pnl"] or 0.0,
+            "avg_edge": item["avg_edge"] or 0.0,
+        }
     return result
 
 
 def get_daily_stats(db_path: str, mode: str = "paper") -> dict:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute("""
-        SELECT
-            COUNT(*) as daily_trades,
-            SUM(pnl) as daily_pnl
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS daily_trades, SUM(pnl) AS daily_pnl
         FROM trades
         WHERE date(created_at) = date('now') AND mode = ?
-    """, (mode,))
-    row = dict(cursor.fetchone())
+        """,
+        (mode,),
+    ).fetchone()
     conn.close()
-    return row
+    return dict(row)
 
 
 def get_total_pnl(db_path: str, mode: str = "paper") -> float:
     conn = sqlite3.connect(db_path)
-    cursor = conn.execute("SELECT SUM(pnl) FROM trades WHERE mode = ?", (mode,))
-    result = cursor.fetchone()[0]
+    value = conn.execute(
+        "SELECT SUM(pnl) FROM trades WHERE mode = ?",
+        (mode,),
+    ).fetchone()[0]
     conn.close()
-    return result or 0.0
+    return value or 0.0
 
 
 def get_deployed_capital(db_path: str, mode: str = "paper") -> float:
     conn = sqlite3.connect(db_path)
-    cursor = conn.execute(
-        "SELECT SUM(size_usd) FROM trades WHERE status IN ('FILLED', 'PENDING') AND mode = ?",
-        (mode,)
-    )
-    result = cursor.fetchone()[0]
+    value = conn.execute(
+        """
+        SELECT SUM(size_usd) FROM trades
+        WHERE status IN ('FILLED', 'PENDING') AND mode = ?
+        """,
+        (mode,),
+    ).fetchone()[0]
     conn.close()
-    return result or 0.0
+    return value or 0.0
 
 
 def set_app_state(db_path: str, key: str, value: str) -> None:
     conn = sqlite3.connect(db_path)
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO app_state (key, value, updated_at)
         VALUES (?, ?, datetime('now'))
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    """, (key, value))
+        """,
+        (key, value),
+    )
     conn.commit()
     conn.close()
 
 
 def get_app_state(db_path: str, key: str, default: str = None) -> Optional[str]:
     conn = sqlite3.connect(db_path)
-    cursor = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,))
-    row = cursor.fetchone()
+    row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
     conn.close()
     return row[0] if row else default
 
 
-# Settings keys with their config defaults and type converters
 _SETTINGS_META = {
     "paper_starting_capital": float,
     "real_starting_capital": float,
-    "min_advantage": float,
     "max_position_size": float,
     "max_deployed_pct": float,
     "scan_interval_minutes": int,
     "min_market_volume": float,
-    "long_term_days": int,
-    "long_term_min_prob": float,
+    "min_discount": float,
+    "stop_loss_pct": float,
+    "max_expiry_days": int,
+    "max_position_pct": float,
+    "max_buy_price": float,
 }
 
 
 def _settings_defaults() -> dict:
     import config
+
     return {
         "paper_starting_capital": config.STARTING_CAPITAL,
         "real_starting_capital": config.STARTING_CAPITAL,
-        "min_advantage": config.MIN_EDGE,
         "max_position_size": config.MAX_POSITION_SIZE,
         "max_deployed_pct": config.MAX_DEPLOYED_PCT,
         "scan_interval_minutes": config.SCAN_INTERVAL_MINUTES,
-        "min_market_volume": float(config.MIN_MARKET_VOLUME),
-        "long_term_days": config.LONG_TERM_DAYS,
-        "long_term_min_prob": config.LONG_TERM_MIN_PROB,
+        "min_market_volume": config.MIN_MARKET_VOLUME,
+        "min_discount": config.MIN_DISCOUNT,
+        "stop_loss_pct": config.STOP_LOSS_PCT,
+        "max_expiry_days": config.MAX_EXPIRY_DAYS,
+        "max_position_pct": config.MAX_POSITION_PCT,
+        "max_buy_price": config.MAX_BUY_PRICE,
     }
 
 
 def get_settings(db_path: str) -> dict:
     result = _settings_defaults()
     conn = sqlite3.connect(db_path)
-    cursor = conn.execute(
+    rows = conn.execute(
         "SELECT key, value FROM app_state WHERE key IN ({})".format(
             ",".join("?" * len(_SETTINGS_META))
         ),
         list(_SETTINGS_META.keys()),
-    )
-    for key, value in cursor.fetchall():
-        result[key] = _SETTINGS_META[key](value)
+    ).fetchall()
     conn.close()
+    for key, value in rows:
+        result[key] = _SETTINGS_META[key](value)
     return result
 
 
@@ -317,38 +442,19 @@ def save_settings(db_path: str, settings: dict) -> None:
     for key, value in settings.items():
         if key not in _SETTINGS_META:
             continue
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO app_state (key, value, updated_at)
             VALUES (?, ?, datetime('now'))
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-        """, (key, str(value)))
+            """,
+            (key, str(value)),
+        )
     conn.commit()
     conn.close()
 
 
-def get_trade_by_market_id(db_path: str, market_id: str) -> Optional[dict]:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.execute(
-        "SELECT * FROM trades WHERE market_id = ? AND status IN ('FILLED','PENDING') LIMIT 1",
-        (market_id,)
-    )
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_trade_by_id(db_path: str, trade_id: int) -> Optional[dict]:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,))
-    row = cursor.fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
 def reset_paper_trading(db_path: str, starting_capital: float) -> None:
-    """Delete all paper-mode trades and snapshots, then seed one snapshot at starting_capital."""
     conn = sqlite3.connect(db_path)
     try:
         conn.execute("DELETE FROM trades WHERE mode = 'paper'")
