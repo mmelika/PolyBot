@@ -25,3 +25,10 @@ DB_PATH = "data/polybot.db"
 
 LONG_TERM_DAYS = 7          # markets closing beyond this require high probability
 LONG_TERM_MIN_PROB = 0.80   # minimum probability to trade a long-term market
+
+MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "3"))
+MIN_DISCOUNT = float(os.getenv("MIN_DISCOUNT", "0.02"))   # min (1 - real_ask)
+STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.20")) # sell if drops 20%
+MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.20"))  # max 20% per event
+MAX_BUY_PRICE = float(os.getenv("MAX_BUY_PRICE", "0.99"))
+POLYGON_RPC_URL = os.getenv("POLYGON_RPC_URL", "")
