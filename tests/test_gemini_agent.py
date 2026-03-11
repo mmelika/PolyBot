@@ -66,3 +66,26 @@ def test_verify_outcome_returns_parsed_result():
     assert result["confidence"] == 0.88
     call_kwargs = mock_client.models.generate_content.call_args.kwargs
     assert "config" in call_kwargs
+
+
+def test_verify_outcome_logs_and_returns_none_when_api_call_fails(caplog):
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = RuntimeError("invalid api key")
+
+    with patch("gemini_agent.config.GEMINI_API_KEY", "test-key"), patch("gemini_agent.genai") as mock_genai, patch("gemini_agent.genai_types") as mock_types, patch("gemini_agent.GENAI_AVAILABLE", True):
+        mock_genai.Client.return_value = mock_client
+        mock_types.GenerateContentConfig.return_value = object()
+        mock_types.Tool.return_value = object()
+        mock_types.GoogleSearch.return_value = object()
+        result = ga.verify_outcome("Has the event happened?")
+
+    assert result is None
+    assert "Verification request failed: invalid api key" in caplog.text
+
+
+def test_verify_outcome_logs_and_returns_none_when_api_key_missing(caplog):
+    with patch("gemini_agent.config.GEMINI_API_KEY", ""), patch("gemini_agent.GENAI_AVAILABLE", True):
+        result = ga.verify_outcome("Has the event happened?")
+
+    assert result is None
+    assert "GEMINI_API_KEY is empty" in caplog.text

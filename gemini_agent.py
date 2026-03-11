@@ -1,8 +1,11 @@
 import json
+import logging
 import re
 from typing import Optional
 
 import config
+
+log = logging.getLogger("gemini")
 
 try:
     from google import genai
@@ -62,6 +65,9 @@ def parse_verify_response(raw: str) -> Optional[dict]:
 def verify_outcome(question: str, market_data: Optional[dict] = None) -> Optional[dict]:
     if not GENAI_AVAILABLE:
         raise RuntimeError("google-genai not installed")
+    if not config.GEMINI_API_KEY:
+        log.error("[gemini] GEMINI_API_KEY is empty; skipping verification")
+        return None
 
     market_data = market_data or {}
     prompt = (
@@ -86,7 +92,8 @@ def verify_outcome(question: str, market_data: Optional[dict] = None) -> Optiona
                 tools=[genai_types.Tool(google_search=genai_types.GoogleSearch())],
             ),
         )
-    except Exception:
+    except Exception as exc:
+        log.error("[gemini] Verification request failed: %s", exc)
         return None
 
     return parse_verify_response(response.text)
