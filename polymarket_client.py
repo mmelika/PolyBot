@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import json as _json
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests
 
@@ -248,7 +248,7 @@ def find_expiry_candidates(
     return candidates
 
 
-def walk_order_book(token_id: str, notional: float) -> tuple[Optional[float], Optional[float]]:
+def walk_order_book(token_id: str, notional: float) -> Tuple[Optional[float], Optional[float]]:
     client = _get_client()
     book = client.get_order_book(token_id)
     remaining = float(notional)
